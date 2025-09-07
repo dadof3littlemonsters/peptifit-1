@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.npm
+
+# Build outputs
+.next/
+dist/
+build/
+
+# Environment variables
+.env.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+
+# Database
+data/peptifit.sqlite
+data/*.db
+
+# SSL certificates (sensitive)
+nginx/ssl/*.pem
+
+# Docker volumes
+volumes/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
