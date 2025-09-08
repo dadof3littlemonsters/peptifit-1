@@ -3,7 +3,7 @@ import { auth, doses, peptides } from '../lib/api'
 import Link from 'next/link'
 import { 
   UserIcon,
-  PlusIcon
+  XMarkIcon
 } from '@heroicons/react/24/outline'
 
 export default function LandingDashboard({ user }) {
@@ -11,6 +11,8 @@ export default function LandingDashboard({ user }) {
   const [availablePeptides, setAvailablePeptides] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
+  const [selectedDay, setSelectedDay] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   useEffect(() => {
     loadDashboardData()
@@ -116,13 +118,46 @@ export default function LandingDashboard({ user }) {
         isCurrentMonth: currentDateObj.getMonth() === month,
         isToday: currentDateObj.toDateString() === new Date().toDateString(),
         doses: dayDoses,
-        hasActivity: dayDoses.length > 0
+        hasActivity: dayDoses.length > 0,
+        // Future: add workouts, supplements, vitals arrays
+        workouts: [], 
+        supplements: [],
+        vitals: []
       })
       
       currentDateObj.setDate(currentDateObj.getDate() + 1)
     }
     
     return days
+  }
+
+  // Handle day click
+  const handleDayClick = (day) => {
+    setSelectedDay(day)
+    setModalOpen(true)
+  }
+
+  // Close modal
+  const closeModal = () => {
+    setModalOpen(false)
+    setSelectedDay(null)
+  }
+
+  // Format time for display
+  const formatTime = (dateString) => {
+    return new Date(dateString).toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  // Format day for modal title
+  const formatDayTitle = (date) => {
+    return date.toLocaleDateString('en-GB', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric'
+    })
   }
 
   // Navigation functions
@@ -273,6 +308,7 @@ export default function LandingDashboard({ user }) {
               {calendarDays.map((day, index) => (
                 <div
                   key={index}
+                  onClick={() => handleDayClick(day)}
                   className={`
                     aspect-square flex flex-col items-center justify-center text-sm font-medium rounded-lg cursor-pointer transition-colors
                     ${day.isCurrentMonth ? 'text-gray-300' : 'text-gray-600'}
@@ -283,9 +319,11 @@ export default function LandingDashboard({ user }) {
                   {day.dayNumber}
                   {day.hasActivity && (
                     <div className="flex gap-0.5 mt-0.5">
+                      {/* Peptide dots */}
                       {day.doses.slice(0, 3).map((_, i) => (
-                        <div key={i} className="w-1 h-1 bg-cyan-400 rounded-full"></div>
+                        <div key={`peptide-${i}`} className="w-1 h-1 bg-cyan-400 rounded-full"></div>
                       ))}
+                      {/* Future: workout dots (green), supplement dots (orange), vitals dots (red) */}
                     </div>
                   )}
                 </div>
@@ -399,6 +437,96 @@ export default function LandingDashboard({ user }) {
         {/* Bottom padding for fixed nav */}
         <div className="h-20"></div>
       </div>
+
+      {/* Day Detail Modal */}
+      {modalOpen && selectedDay && (
+        <div 
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
+          onClick={closeModal}
+        >
+          <div 
+            className="bg-gray-800 rounded-3xl p-6 w-full max-w-sm border border-gray-700 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-xl font-semibold text-white">{formatDayTitle(selectedDay.date)}</h3>
+                <p className="text-gray-400 text-sm">
+                  {selectedDay.doses.length > 0 
+                    ? `${selectedDay.doses.length} dose${selectedDay.doses.length > 1 ? 's' : ''} logged`
+                    : 'No activity logged'
+                  }
+                </p>
+              </div>
+              <button 
+                onClick={closeModal}
+                className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Doses Section */}
+            {selectedDay.doses.length > 0 ? (
+              <div className="space-y-4 mb-6">
+                <h4 className="text-lg font-semibold text-white">Peptides</h4>
+                {selectedDay.doses.map((dose, index) => {
+                  const peptide = availablePeptides.find(p => p.id === dose.peptide_id)
+                  return (
+                    <div key={index} className="bg-gray-700 rounded-xl p-4 border border-gray-600">
+                      <div className="flex justify-between items-center mb-3">
+                        <h5 className="text-white font-semibold">{peptide?.name}</h5>
+                        <span className="bg-purple-600 text-white px-3 py-1 rounded-full text-xs font-medium">
+                          {dose.dose_amount}{dose.dose_unit}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Injection site</div>
+                          <div className="text-white">{dose.injection_site || 'Not specified'}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Time</div>
+                          <div className="text-cyan-400">{formatTime(dose.administration_time)}</div>
+                        </div>
+                      </div>
+                      {dose.notes && (
+                        <div className="mt-3 p-2 bg-gray-800 rounded-lg">
+                          <div className="text-gray-300 text-sm italic">{dose.notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Empty State */
+              <div className="text-center py-8 mb-6">
+                <div className="text-5xl mb-3 opacity-60">💉</div>
+                <h4 className="text-lg font-semibold text-white mb-2">No doses logged</h4>
+                <p className="text-gray-400 text-sm">Did you take any peptides this day?</p>
+              </div>
+            )}
+
+            {/* Future: Workouts, Supplements, Vitals sections will go here */}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <Link
+                href="/log-dose"
+                className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3 px-4 rounded-xl text-center transition-colors"
+                onClick={closeModal}
+              >
+                {selectedDay.doses.length > 0 ? 'Add Another' : 'Log Dose'}
+              </Link>
+              <button className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-xl transition-colors border border-gray-600">
+                {selectedDay.isToday ? 'View Schedule' : 'Edit Day'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
