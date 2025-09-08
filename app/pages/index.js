@@ -402,4 +402,4 @@ export default function LandingDashboard({ user }) {
                   <h3 className="text-xl font-semibold text-white">Peptides</h3>
                   <p className="text-gray-400 text-sm">Track your peptide protocols</p>
                 </div>
-              </div
+              </div>
