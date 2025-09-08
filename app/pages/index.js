@@ -403,3 +403,189 @@ export default function LandingDashboard({ user }) {
                   <p className="text-gray-400 text-sm">Track your peptide protocols</p>
                 </div>
               </div>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <div className="text-white font-semibold">
+                    {userStack.length > 0 ? userStack.length : availablePeptides.length}
+                  </div>
+                  <div className="text-gray-400 text-xs">
+                    {userStack.length > 0 ? 'In your stack' : 'Available'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">{stats.peptides}</div>
+                  <div className="text-gray-400 text-xs">This week</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">
+                    {userStack.length > 0 ? '95%' : '-'}
+                  </div>
+                  <div className="text-gray-400 text-xs">Adherence</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-xl border border-gray-600/50">
+                <span className="text-cyan-400 font-medium text-sm">
+                  {userStack.length > 0 ? 'View stack & log doses' : 'Setup peptide stack'}
+                </span>
+                <span className="text-cyan-400">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Future Modules */}
+          {[
+            { icon: '🏋️', title: 'Workouts', subtitle: 'Track training sessions & progress' },
+            { icon: '💊', title: 'Supplements', subtitle: 'Manage daily supplement routine' },
+            { icon: '📊', title: 'Vitals', subtitle: 'Monitor weight, BP, glucose & more' }
+          ].map((module, index) => (
+            <div key={index} className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-3xl mb-2">{module.icon}</div>
+                  <h3 className="text-xl font-semibold text-white">
+                    {module.title} <span className="text-sm text-gray-500 font-normal">(Coming Soon)</span>
+                  </h3>
+                  <p className="text-gray-400 text-sm">{module.subtitle}</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">This week</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">Last entry</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">Progress</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-700/30 rounded-xl border border-gray-600/30">
+                <span className="text-gray-500 font-medium text-sm">Coming in next update</span>
+                <span className="text-gray-500">→</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Bottom Navigation */}
+        <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
+          <div className="max-w-md mx-auto">
+            <div className="grid grid-cols-4 py-2">
+              <div className="flex flex-col items-center py-2 text-cyan-400">
+                <span className="text-xl mb-1">🏠</span>
+                <span className="text-xs">Home</span>
+              </div>
+              <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+                <span className="text-xl mb-1">💉</span>
+                <span className="text-xs">Peptides</span>
+              </Link>
+              <div className="flex flex-col items-center py-2 text-gray-400">
+                <span className="text-xl mb-1">📊</span>
+                <span className="text-xs">Analytics</span>
+              </div>
+              <button 
+                onClick={auth.logout}
+                className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <span className="text-xl mb-1">👤</span>
+                <span className="text-xs">Profile</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="h-20"></div>
+      </div>
+
+      {/* Day Detail Modal */}
+      {modalOpen && selectedDay && (
+        <div 
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-5"
+          onClick={closeModal}
+        >
+          <div 
+            className="bg-gray-800 rounded-3xl p-6 w-full max-w-sm border border-gray-700 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-xl font-semibold text-white">{formatDayTitle(selectedDay.date)}</h3>
+                <p className="text-gray-400 text-sm">
+                  {selectedDay.doses.length > 0 
+                    ? `${selectedDay.doses.length} dose${selectedDay.doses.length > 1 ? 's' : ''} logged`
+                    : 'No activity logged'
+                  }
+                </p>
+              </div>
+              <button 
+                onClick={closeModal}
+                className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {selectedDay.doses.length > 0 ? (
+              <div className="space-y-4 mb-6">
+                <h4 className="text-lg font-semibold text-white">Peptides</h4>
+                {selectedDay.doses.map((dose, index) => {
+                  const peptide = availablePeptides.find(p => p.id === dose.peptide_id)
+                  return (
+                    <div key={index} className="bg-gray-700 rounded-xl p-4 border border-gray-600">
+                      <div className="flex justify-between items-center mb-3">
+                        <h5 className="text-white font-semibold">{peptide?.name}</h5>
+                        <span className="bg-purple-600 text-white px-3 py-1 rounded-full text-xs font-medium">
+                          {dose.dose_amount}{dose.dose_unit}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Injection site</div>
+                          <div className="text-white">{dose.injection_site || 'Not specified'}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-400 text-xs mb-1">Time</div>
+                          <div className="text-cyan-400">{formatTime(dose.administration_time)}</div>
+                        </div>
+                      </div>
+                      {dose.notes && (
+                        <div className="mt-3 p-2 bg-gray-800 rounded-lg">
+                          <div className="text-gray-300 text-sm italic">{dose.notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 mb-6">
+                <div className="text-5xl mb-3 opacity-60">💉</div>
+                <h4 className="text-lg font-semibold text-white mb-2">No doses logged</h4>
+                <p className="text-gray-400 text-sm">Did you take any peptides this day?</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <Link
+                href="/log-dose"
+                className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3 px-4 rounded-xl text-center transition-colors"
+                onClick={closeModal}
+              >
+                {selectedDay.doses.length > 0 ? 'Add Another' : 'Log Dose'}
+              </Link>
+              <button className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-xl transition-colors border border-gray-600">
+                {selectedDay.isToday ? 'View Schedule' : 'Edit Day'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
