@@ -42,10 +42,17 @@ export default function PeptideConfigurationWizard() {
   }
 
   const loadUserStack = async () => {
-    // TODO: Load user's configured peptides from API
-    // For now, using mock data
-    setUserStack([])
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('peptifit_user_stack')
+      if (saved) {
+        setUserStack(JSON.parse(saved))
+      }
+    } catch (err) {
+      console.error('Error loading user stack:', err)
+    }
   }
+}
 
   const frequencyOptions = [
     { value: 'daily', label: 'Daily', description: 'Every day' },
@@ -121,17 +128,23 @@ export default function PeptideConfigurationWizard() {
   }
 
   const saveConfiguration = () => {
-    const newStackItem = {
-      peptide_id: configuringPeptide.id,
-      peptide: configuringPeptide,
-      schedule: { ...scheduleConfig },
-      configured_at: new Date().toISOString()
-    }
-    
-    setUserStack(prev => [...prev, newStackItem])
-    setCurrentStep('selection')
-    setConfiguringPeptide(null)
+  const newStackItem = {
+    peptide_id: configuringPeptide.id,
+    peptide: configuringPeptide,
+    schedule: { ...scheduleConfig },
+    configured_at: new Date().toISOString()
   }
+  
+  const updatedStack = [...userStack, newStackItem]
+  setUserStack(updatedStack)
+  
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('peptifit_user_stack', JSON.stringify(updatedStack))
+  }
+  
+  setCurrentStep('selection')
+  setConfiguringPeptide(null)
+}
 
   const isInStack = (peptideId) => {
     return userStack.some(item => item.peptide_id === peptideId)
