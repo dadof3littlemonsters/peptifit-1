@@ -268,28 +268,28 @@ export default function LandingDashboard({ user }) {
       <div className="max-w-md mx-auto">
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-3 p-5">
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden">
+          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
             <div className="text-2xl mb-2">💉</div>
             <div className="text-2xl font-bold text-white">{stats.peptides}</div>
             <div className="text-gray-400 text-xs font-medium">Peptides this week</div>
           </div>
           
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden">
+          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-emerald-500"></div>
             <div className="text-2xl mb-2">🏋️</div>
             <div className="text-2xl font-bold text-white">{stats.workouts}</div>
             <div className="text-gray-400 text-xs font-medium">Workouts this week</div>
           </div>
           
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden">
+          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-yellow-500"></div>
             <div className="text-2xl mb-2">💊</div>
             <div className="text-2xl font-bold text-white">{stats.supplements}</div>
             <div className="text-gray-400 text-xs font-medium">Supplements today</div>
           </div>
           
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden">
+          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 to-pink-500"></div>
             <div className="text-2xl mb-2">📊</div>
             <div className="text-xl font-bold text-white">{stats.vitals}</div>
@@ -300,7 +300,7 @@ export default function LandingDashboard({ user }) {
         {/* Configuration Prompt */}
         {userStack.length === 0 && (
           <div className="mx-5 mb-5">
-            <div className="bg-gradient-to-r from-cyan-600 to-blue-600 rounded-2xl p-4 flex items-center gap-3">
+            <div className="bg-gradient-to-r from-cyan-600 to-blue-600 rounded-2xl p-4 flex items-center gap-3 shadow-lg">
               <span className="text-2xl">⚙️</span>
               <div className="flex-1">
                 <div className="font-semibold text-sm">Configure Your Peptide Stack</div>
@@ -316,7 +316,7 @@ export default function LandingDashboard({ user }) {
         {/* Next Dose Alert */}
         {nextDose && (
           <div className="mx-5 mb-5">
-            <div className={`rounded-2xl p-4 flex items-center gap-3 ${
+            <div className={`rounded-2xl p-4 flex items-center gap-3 shadow-lg ${
               nextDose.isReady 
                 ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
                 : 'bg-gradient-to-r from-purple-600 to-violet-600'
@@ -340,7 +340,7 @@ export default function LandingDashboard({ user }) {
 
         {/* Calendar */}
         <div className="mx-5 mb-5">
-          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
+          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
             {/* Calendar Header */}
             <div className="flex items-center justify-between mb-5">
               <button 
@@ -395,7 +395,7 @@ export default function LandingDashboard({ user }) {
         <div className="px-5 pb-5 space-y-4">
           {/* Peptides Module */}
           <Link href="/peptides" className="block">
-            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1">
+            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1 shadow-lg hover:shadow-xl">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-3xl mb-2">💉</div>
@@ -439,7 +439,7 @@ export default function LandingDashboard({ user }) {
             { icon: '💊', title: 'Supplements', subtitle: 'Manage daily supplement routine' },
             { icon: '📊', title: 'Vitals', subtitle: 'Monitor weight, BP, glucose & more' }
           ].map((module, index) => (
-            <div key={index} className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60">
+            <div key={index} className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60 shadow-lg">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-3xl mb-2">{module.icon}</div>
