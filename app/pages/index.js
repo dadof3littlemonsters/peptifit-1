@@ -12,7 +12,6 @@ export default function LandingDashboard({ user }) {
   const [availablePeptides, setAvailablePeptides] = useState([])
   const [userStack, setUserStack] = useState([])
   const [loading, setLoading] = useState(true)
-  const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDay, setSelectedDay] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -121,7 +120,49 @@ export default function LandingDashboard({ user }) {
     return nextDoseInfo
   }
 
-  // Generate calendar data
+  // Generate weekly calendar data
+  const getWeeklyCalendarData = () => {
+    const today = new Date()
+    const startOfWeek = new Date(today)
+    startOfWeek.setDate(today.getDate() - today.getDay()) // Start from Sunday
+    
+    const days = []
+    const currentDateObj = new Date(startOfWeek)
+    
+    // Generate 7 days (this week)
+    for (let i = 0; i < 7; i++) {
+      const dayDoses = recentDoses.filter(dose => {
+        const doseDate = new Date(dose.administration_time)
+        return doseDate.toDateString() === currentDateObj.toDateString()
+      })
+      
+      // Filter to user's configured peptides if they have any
+      const relevantDoses = userStack.length > 0 
+        ? dayDoses.filter(dose => 
+            userStack.some(item => item.peptide_id === dose.peptide_id)
+          )
+        : dayDoses
+      
+      days.push({
+        date: new Date(currentDateObj),
+        dayNumber: currentDateObj.getDate(),
+        isCurrentMonth: currentDateObj.getMonth() === today.getMonth(),
+        isToday: currentDateObj.toDateString() === today.toDateString(),
+        isThisWeek: true,
+        doses: relevantDoses,
+        hasActivity: relevantDoses.length > 0,
+        workouts: [], 
+        supplements: [],
+        vitals: []
+      })
+      
+      currentDateObj.setDate(currentDateObj.getDate() + 1)
+    }
+    
+    return days
+  }
+
+  // Generate full month calendar data (for reference)
   const getCalendarData = () => {
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
@@ -155,7 +196,6 @@ export default function LandingDashboard({ user }) {
         isToday: currentDateObj.toDateString() === new Date().toDateString(),
         doses: relevantDoses,
         hasActivity: relevantDoses.length > 0,
-        // Future: add workouts, supplements, vitals arrays
         workouts: [], 
         supplements: [],
         vitals: []
@@ -196,27 +236,11 @@ export default function LandingDashboard({ user }) {
     })
   }
 
-  // Navigation functions
-  const goToPreviousMonth = () => {
-    setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))
-  }
-
-  const goToNextMonth = () => {
-    setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))
-  }
-
   const formatDate = () => {
     return new Date().toLocaleDateString('en-GB', {
       weekday: 'long',
       month: 'long', 
       day: 'numeric'
-    })
-  }
-
-  const formatMonthYear = () => {
-    return currentDate.toLocaleDateString('en-GB', {
-      month: 'long',
-      year: 'numeric'
     })
   }
 
@@ -233,7 +257,6 @@ export default function LandingDashboard({ user }) {
 
   const stats = getWeeklyStats()
   const nextDose = getNextDoseInfo()
-  const calendarDays = getCalendarData()
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -266,34 +289,164 @@ export default function LandingDashboard({ user }) {
       </header>
 
       <div className="max-w-md mx-auto">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3 p-5">
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
-            <div className="text-2xl mb-2">💉</div>
-            <div className="text-2xl font-bold text-white">{stats.peptides}</div>
-            <div className="text-gray-400 text-xs font-medium">Peptides this week</div>
+        {/* Due Today Section */}
+        <div className="p-5">
+          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Due Today</h2>
+              <span className="text-cyan-400 text-sm">{new Date().toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+            </div>
+            
+            {userStack.length > 0 ? (
+              <div className="space-y-3">
+                {userStack.map((stackItem, index) => {
+                  const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
+                  const lastDose = recentDoses
+                    .filter(dose => dose.peptide_id === stackItem.peptide_id)
+                    .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
+                  
+                  const isDueToday = lastDose ? 
+                    new Date(lastDose.administration_time).toDateString() !== new Date().toDateString() :
+                    true
+                  
+                  return (
+                    <div key={index} className={`p-3 rounded-xl border ${
+                      isDueToday 
+                        ? 'bg-gradient-to-r from-cyan-600/20 to-blue-600/20 border-cyan-500/30' 
+                        : 'bg-gray-700/50 border-gray-600/50'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-cyan-500/20 rounded-full flex items-center justify-center">
+                            <span className="text-cyan-400 text-sm">💉</span>
+                          </div>
+                          <div>
+                            <div className="text-white font-medium text-sm">{peptide?.name}</div>
+                            <div className="text-gray-400 text-xs">
+                              {stackItem.schedule.doses[0]?.amount}{stackItem.schedule.doses[0]?.unit}
+                              {stackItem.schedule.frequency === 'daily' ? ' daily' : 
+                               stackItem.schedule.frequency === 'weekly' ? ' weekly' : 
+                               ' custom schedule'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {isDueToday ? (
+                          <Link 
+                            href="/log-dose"
+                            className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors"
+                          >
+                            Log Dose
+                          </Link>
+                        ) : (
+                          <div className="text-green-400 text-xs font-medium px-2 py-1 bg-green-500/20 rounded">
+                            ✅ Taken
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <div className="text-4xl mb-3 opacity-60">💉</div>
+                <h3 className="text-white font-medium mb-2">No peptides configured</h3>
+                <p className="text-gray-400 text-sm mb-4">Set up your peptide stack to see what's due today</p>
+                <Link 
+                  href="/configure-peptides"
+                  className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-4 py-2 rounded-lg text-sm transition-colors inline-block"
+                >
+                  Configure Peptides
+                </Link>
+              </div>
+            )}
           </div>
-          
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500 to-emerald-500"></div>
-            <div className="text-2xl mb-2">🏋️</div>
-            <div className="text-2xl font-bold text-white">{stats.workouts}</div>
-            <div className="text-gray-400 text-xs font-medium">Workouts this week</div>
-          </div>
-          
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-orange-500 to-yellow-500"></div>
-            <div className="text-2xl mb-2">💊</div>
-            <div className="text-2xl font-bold text-white">{stats.supplements}</div>
-            <div className="text-gray-400 text-xs font-medium">Supplements today</div>
-          </div>
-          
-          <div className="bg-gray-800 rounded-2xl p-5 text-center border border-gray-700 relative overflow-hidden shadow-lg">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 to-pink-500"></div>
-            <div className="text-2xl mb-2">📊</div>
-            <div className="text-xl font-bold text-white">{stats.vitals}</div>
-            <div className="text-gray-400 text-xs font-medium">Last vitals</div>
+        </div>
+
+        {/* GLP-1 Pharmacokinetic Graph Placeholder */}
+        <div className="px-5 mb-5">
+          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">System Levels</h2>
+              <span className="text-cyan-400 text-sm">GLP-1 Analog</span>
+            </div>
+            
+            <div className="bg-gray-900/50 rounded-xl p-4 mb-4 border border-gray-700">
+              <div className="relative h-32 bg-gradient-to-b from-gray-800 to-gray-900 rounded-lg overflow-hidden">
+                {/* Graph placeholder with simulated curve */}
+                <div className="absolute inset-0">
+                  <div className="absolute bottom-0 left-0 right-0 h-px bg-gray-600"></div>
+                  <div className="absolute left-0 top-1/2 w-full h-px bg-gray-600"></div>
+                  <div className="absolute left-0 top-1/4 w-full h-px bg-gray-600"></div>
+                  <div className="absolute left-0 top-3/4 w-full h-px bg-gray-600"></div>
+                  
+                  {/* Simulated pharmacokinetic curve */}
+                  <div className="absolute bottom-0 left-0 w-full" style={{ height: '100%' }}>
+                    <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      <path 
+                        d="M0,100 C20,40 40,20 60,30 C80,40 90,20 100,30" 
+                        stroke="#06b6d4" 
+                        strokeWidth="2" 
+                        fill="none" 
+                        strokeDasharray="4 2"
+                      />
+                      <path 
+                        d="M0,100 C20,40 40,20 60,30 C80,40 90,20 100,30" 
+                        stroke="#06b6d4" 
+                        strokeWidth="3" 
+                        fill="url(#gradient)"
+                        opacity="0.3"
+                      />
+                      <defs>
+                        <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </div>
+                  
+                  {/* Current level indicator */}
+                  <div className="absolute top-1/4 right-4 transform -translate-y-1/2">
+                    <div className="bg-cyan-500 text-black text-xs font-bold px-2 py-1 rounded-full">
+                      Current: 72%
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-4 gap-2 text-xs text-gray-400 mt-2">
+                <div>0h</div>
+                <div className="text-center">6h</div>
+                <div className="text-center">12h</div>
+                <div className="text-right">24h</div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
+                <div className="text-cyan-400 font-semibold">72%</div>
+                <div className="text-gray-400 text-xs">Current</div>
+              </div>
+              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
+                <div className="text-green-400 font-semibold">12h</div>
+                <div className="text-gray-400 text-xs">Peak</div>
+              </div>
+              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
+                <div className="text-orange-400 font-semibold">36h</div>
+                <div className="text-gray-400 text-xs">Half-life</div>
+              </div>
+            </div>
+            
+            <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-cyan-400 text-sm">💡</span>
+                <span className="text-cyan-400 text-xs">
+                  Based on last dose timing and peptide pharmacokinetics
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -338,55 +491,68 @@ export default function LandingDashboard({ user }) {
           </div>
         )}
 
-        {/* Calendar */}
+        {/* This Week Schedule */}
         <div className="mx-5 mb-5">
           <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
-            {/* Calendar Header */}
-            <div className="flex items-center justify-between mb-5">
-              <button 
-                onClick={goToPreviousMonth}
-                className="p-2 text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors"
-              >
-                ‹
-              </button>
-              <h3 className="text-lg font-semibold text-white">{formatMonthYear()}</h3>
-              <button 
-                onClick={goToNextMonth}
-                className="p-2 text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors"
-              >
-                ›
-              </button>
+            {/* Week Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">This Week</h3>
+              <span className="text-cyan-400 text-sm">
+                {new Date().toLocaleDateString('en-GB', { month: 'short' })} Week
+              </span>
             </div>
 
-            {/* Calendar Grid */}
+            {/* Weekly Schedule Grid */}
             <div className="grid grid-cols-7 gap-1">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="text-center p-3 text-xs font-medium text-gray-400">
-                  {day}
-                </div>
-              ))}
-              
-              {calendarDays.map((day, index) => (
+              {getWeeklyCalendarData().map((day, index) => (
                 <div
                   key={index}
                   onClick={() => handleDayClick(day)}
                   className={`
                     aspect-square flex flex-col items-center justify-center text-sm font-medium rounded-lg cursor-pointer transition-colors
-                    ${day.isCurrentMonth ? 'text-gray-300' : 'text-gray-600'}
-                    ${day.isToday ? 'bg-cyan-500 text-black font-bold' : 'hover:bg-gray-700/50'}
-                    ${day.hasActivity && !day.isToday ? 'text-white' : ''}
+                    ${day.isToday ? 'bg-cyan-500 text-black font-bold' : 'bg-gray-700/50 hover:bg-gray-600/50'}
+                    ${day.hasActivity ? 'border border-cyan-400/30' : ''}
                   `}
                 >
-                  {day.dayNumber}
+                  <div className="text-xs text-gray-400 mb-1">
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'][index]}
+                  </div>
+                  <div className={`${day.isToday ? 'text-black' : 'text-white'}`}>
+                    {day.dayNumber}
+                  </div>
                   {day.hasActivity && (
-                    <div className="flex gap-0.5 mt-0.5">
-                      {day.doses.slice(0, 3).map((_, i) => (
+                    <div className="flex gap-0.5 mt-1">
+                      {day.doses.slice(0, 2).map((_, i) => (
                         <div key={`peptide-${i}`} className="w-1 h-1 bg-cyan-400 rounded-full"></div>
                       ))}
                     </div>
                   )}
                 </div>
               ))}
+            </div>
+            
+            {/* Quick Stats */}
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="text-center">
+                  <div className="text-cyan-400 font-semibold">
+                    {getWeeklyCalendarData().filter(day => day.hasActivity).length}
+                  </div>
+                  <div className="text-gray-400">Active days</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-green-400 font-semibold">
+                    {getWeeklyCalendarData().reduce((total, day) => total + day.doses.length, 0)}
+                  </div>
+                  <div className="text-gray-400">Total doses</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-orange-400 font-semibold">
+                    {userStack.length > 0 ? '85%' : '-'}
+                  </div>
+                  <div className="text-gray-400">Adherence</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -435,11 +601,15 @@ export default function LandingDashboard({ user }) {
 
           {/* Future Modules */}
           {[
-            { icon: '🏋️', title: 'Workouts', subtitle: 'Track training sessions & progress' },
-            { icon: '💊', title: 'Supplements', subtitle: 'Manage daily supplement routine' },
-            { icon: '📊', title: 'Vitals', subtitle: 'Monitor weight, BP, glucose & more' }
+            { icon: '🏋️', title: 'Workouts', subtitle: 'Track training sessions & progress', alert: 'Exercise tracking - Coming Soon!' },
+            { icon: '💊', title: 'Supplements', subtitle: 'Manage daily supplement routine', alert: 'Supplements tracking - Coming Soon!' },
+            { icon: '📊', title: 'Vitals', subtitle: 'Monitor weight, BP, glucose & more', alert: 'Vitals tracking - Coming Soon!' }
           ].map((module, index) => (
-            <div key={index} className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60 shadow-lg">
+            <div 
+              key={index} 
+              className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60 shadow-lg cursor-pointer hover:opacity-70 transition-opacity"
+              onClick={() => alert(module.alert)}
+            >
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="text-3xl mb-2">{module.icon}</div>
@@ -473,28 +643,38 @@ export default function LandingDashboard({ user }) {
           ))}
         </div>
 
-        {/* Bottom Navigation */}
+        {/* Bottom Navigation - 4 Prongs */}
         <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
           <div className="max-w-md mx-auto">
-            <div className="grid grid-cols-4 py-2">
+            <div className="grid grid-cols-5 py-2">
               <div className="flex flex-col items-center py-2 text-cyan-400">
                 <span className="text-xl mb-1">🏠</span>
-                <span className="text-xs">Home</span>
+                <span className="text-xs">Dashboard</span>
               </div>
               <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
                 <span className="text-xl mb-1">💉</span>
                 <span className="text-xs">Peptides</span>
               </Link>
-              <div className="flex flex-col items-center py-2 text-gray-400">
-                <span className="text-xl mb-1">📊</span>
-                <span className="text-xs">Analytics</span>
-              </div>
               <button 
-                onClick={auth.logout}
+                onClick={() => alert('Exercise tracking - Coming Soon!')}
                 className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
               >
-                <span className="text-xl mb-1">👤</span>
-                <span className="text-xs">Profile</span>
+                <span className="text-xl mb-1">🏋️</span>
+                <span className="text-xs">Exercise</span>
+              </button>
+              <button 
+                onClick={() => alert('Vitals tracking - Coming Soon!')}
+                className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <span className="text-xl mb-1">📊</span>
+                <span className="text-xs">Vitals</span>
+              </button>
+              <button 
+                onClick={() => alert('Supplements tracking - Coming Soon!')}
+                className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <span className="text-xl mb-1">💊</span>
+                <span className="text-xs">Supplements</span>
               </button>
             </div>
           </div>
