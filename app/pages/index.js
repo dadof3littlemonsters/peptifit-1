@@ -6,6 +6,7 @@ import {
   XMarkIcon,
   CogIcon
 } from '@heroicons/react/24/outline'
+import PharmacokineticGraph from '../components/PharmacokineticGraph'
 
 export default function LandingDashboard({ user }) {
   const [recentDoses, setRecentDoses] = useState([])
@@ -364,90 +365,13 @@ export default function LandingDashboard({ user }) {
           </div>
         </div>
 
-        {/* GLP-1 Pharmacokinetic Graph Placeholder */}
+        {/* GLP-1 Pharmacokinetic Graph */}
         <div className="px-5 mb-5">
-          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">System Levels</h2>
-              <span className="text-cyan-400 text-sm">GLP-1 Analog</span>
-            </div>
-            
-            <div className="bg-gray-900/50 rounded-xl p-4 mb-4 border border-gray-700">
-              <div className="relative h-32 bg-gradient-to-b from-gray-800 to-gray-900 rounded-lg overflow-hidden">
-                {/* Graph placeholder with simulated curve */}
-                <div className="absolute inset-0">
-                  <div className="absolute bottom-0 left-0 right-0 h-px bg-gray-600"></div>
-                  <div className="absolute left-0 top-1/2 w-full h-px bg-gray-600"></div>
-                  <div className="absolute left-0 top-1/4 w-full h-px bg-gray-600"></div>
-                  <div className="absolute left-0 top-3/4 w-full h-px bg-gray-600"></div>
-                  
-                  {/* Simulated pharmacokinetic curve */}
-                  <div className="absolute bottom-0 left-0 w-full" style={{ height: '100%' }}>
-                    <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
-                      <path 
-                        d="M0,100 C20,40 40,20 60,30 C80,40 90,20 100,30" 
-                        stroke="#06b6d4" 
-                        strokeWidth="2" 
-                        fill="none" 
-                        strokeDasharray="4 2"
-                      />
-                      <path 
-                        d="M0,100 C20,40 40,20 60,30 C80,40 90,20 100,30" 
-                        stroke="#06b6d4" 
-                        strokeWidth="3" 
-                        fill="url(#gradient)"
-                        opacity="0.3"
-                      />
-                      <defs>
-                        <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
-                          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                  </div>
-                  
-                  {/* Current level indicator */}
-                  <div className="absolute top-1/4 right-4 transform -translate-y-1/2">
-                    <div className="bg-cyan-500 text-black text-xs font-bold px-2 py-1 rounded-full">
-                      Current: 72%
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-4 gap-2 text-xs text-gray-400 mt-2">
-                <div>0h</div>
-                <div className="text-center">6h</div>
-                <div className="text-center">12h</div>
-                <div className="text-right">24h</div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
-                <div className="text-cyan-400 font-semibold">72%</div>
-                <div className="text-gray-400 text-xs">Current</div>
-              </div>
-              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
-                <div className="text-green-400 font-semibold">12h</div>
-                <div className="text-gray-400 text-xs">Peak</div>
-              </div>
-              <div className="text-center p-2 bg-gray-700/50 rounded-lg">
-                <div className="text-orange-400 font-semibold">36h</div>
-                <div className="text-gray-400 text-xs">Half-life</div>
-              </div>
-            </div>
-            
-            <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
-              <div className="flex items-center gap-2">
-                <span className="text-cyan-400 text-sm">💡</span>
-                <span className="text-cyan-400 text-xs">
-                  Based on last dose timing and peptide pharmacokinetics
-                </span>
-              </div>
-            </div>
-          </div>
+          <PharmacokineticGraph 
+            recentDoses={recentDoses}
+            userStack={userStack}
+            availablePeptides={availablePeptides}
+          />
         </div>
 
         {/* Configuration Prompt */}
