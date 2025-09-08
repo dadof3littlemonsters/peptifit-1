@@ -73,7 +73,7 @@ db.serialize(() => {
     FOREIGN KEY (peptide_id) REFERENCES peptides (id)
   )`);
 
-  // Insert default peptides
+  // Insert complete peptide library
   const defaultPeptides = [
     {
       id: uuidv4(),
@@ -87,7 +87,7 @@ db.serialize(() => {
     {
       id: uuidv4(),
       name: 'Retatrutide',
-      description: 'Triple hormone receptor agonist',
+      description: 'Triple hormone receptor agonist (GLP-1/GIP/Glucagon)',
       dosage_range: '1mg - 12mg weekly',
       frequency: 'Weekly',
       administration_route: 'Subcutaneous injection',
@@ -95,20 +95,83 @@ db.serialize(() => {
     },
     {
       id: uuidv4(),
-      name: 'MOTS-C',
-      description: 'Mitochondrial-derived peptide',
-      dosage_range: '5mg - 20mg',
+      name: 'ARA-290',
+      description: 'Erythropoietin derivative for tissue protection',
+      dosage_range: '2mg - 8mg',
       frequency: '2-3 times per week',
       administration_route: 'Subcutaneous injection',
       storage_requirements: 'Refrigerate 2-8°C'
     },
     {
       id: uuidv4(),
+      name: 'KPV',
+      description: 'Anti-inflammatory tripeptide',
+      dosage_range: '200mcg - 500mcg',
+      frequency: 'Daily or as needed',
+      administration_route: 'Subcutaneous injection or topical',
+      storage_requirements: 'Refrigerate 2-8°C'
+    },
+    {
+      id: uuidv4(),
+      name: 'GLOW 70',
+      description: 'Combination: BPC-157 10mg, TB4 10mg, GHK-CU 50mg',
+      dosage_range: '0.5ml - 1ml per dose',
+      frequency: 'Daily or every other day',
+      administration_route: 'Subcutaneous injection',
+      storage_requirements: 'Refrigerate 2-8°C, use within 30 days of reconstitution'
+    },
+    {
+      id: uuidv4(),
       name: 'Selank',
-      description: 'Anxiolytic peptide',
+      description: 'Anxiolytic and cognitive enhancing peptide',
       dosage_range: '150mcg - 300mcg',
       frequency: 'Daily',
-      administration_route: 'Nasal spray or injection',
+      administration_route: 'Nasal spray or subcutaneous injection',
+      storage_requirements: 'Refrigerate 2-8°C'
+    },
+    {
+      id: uuidv4(),
+      name: 'Semax',
+      description: 'Nootropic peptide for cognitive enhancement',
+      dosage_range: '200mcg - 600mcg',
+      frequency: 'Daily',
+      administration_route: 'Nasal spray or subcutaneous injection',
+      storage_requirements: 'Refrigerate 2-8°C'
+    },
+    {
+      id: uuidv4(),
+      name: 'HGH',
+      description: 'Human Growth Hormone',
+      dosage_range: '2IU - 4IU',
+      frequency: 'Daily',
+      administration_route: 'Subcutaneous injection',
+      storage_requirements: 'Refrigerate 2-8°C, use within 14 days of reconstitution'
+    },
+    {
+      id: uuidv4(),
+      name: 'Thymosin Alpha 1 (TA1)',
+      description: 'Immune system modulator',
+      dosage_range: '1.6mg - 3.2mg',
+      frequency: '2-3 times per week',
+      administration_route: 'Subcutaneous injection',
+      storage_requirements: 'Refrigerate 2-8°C'
+    },
+    {
+      id: uuidv4(),
+      name: 'NAD+',
+      description: 'Nicotinamide Adenine Dinucleotide for cellular energy',
+      dosage_range: '100mg - 500mg',
+      frequency: '2-3 times per week',
+      administration_route: 'Subcutaneous injection or IV',
+      storage_requirements: 'Refrigerate 2-8°C'
+    },
+    {
+      id: uuidv4(),
+      name: 'MOTS-C',
+      description: 'Mitochondrial-derived peptide for metabolic enhancement',
+      dosage_range: '5mg - 20mg',
+      frequency: '2-3 times per week',
+      administration_route: 'Subcutaneous injection',
       storage_requirements: 'Refrigerate 2-8°C'
     }
   ];
@@ -126,7 +189,7 @@ db.serialize(() => {
         stmt.run(peptide.id, peptide.name, peptide.description, peptide.dosage_range, peptide.frequency, peptide.administration_route, peptide.storage_requirements);
       });
       stmt.finalize();
-      console.log('Default peptides inserted');
+      console.log('Complete peptide library inserted');
     }
   });
 });
