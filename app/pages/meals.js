@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { auth, meals } from '../lib/api'
+import { auth, meals as mealsApi } from '../lib/api'
 import Link from 'next/link'
 import {
   ChevronLeftIcon,
@@ -78,7 +78,7 @@ export default function Meals({ user }) {
       setLoading(true)
       const dateStr = selectedDate.toISOString().split('T')[0]
       
-      const response = await meals.getByDate(dateStr)
+      const response = await mealsApi.getByDate(dateStr)
       // API returns grouped meals, flatten them into an array
       const groupedMeals = response.meals || {}
       const allMeals = [
@@ -98,7 +98,7 @@ export default function Meals({ user }) {
 
   const addMeal = async (mealData) => {
     try {
-      await meals.create(mealData)
+      await mealsApi.create(mealData)
       await loadMeals()
     } catch (error) {
       console.error('Failed to save meal:', error)
@@ -206,7 +206,7 @@ export default function Meals({ user }) {
 
   const deleteMeal = async (mealId) => {
     try {
-      await meals.delete(mealId)
+      await mealsApi.delete(mealId)
       await loadMeals()
     } catch (error) {
       console.error('Failed to delete meal:', error)
@@ -221,7 +221,7 @@ export default function Meals({ user }) {
     const todayStr = selectedDate.toISOString().split('T')[0]
     
     try {
-      await meals.copyFromDate(yesterdayStr, todayStr)
+      await mealsApi.copyFromDate(yesterdayStr, todayStr)
       await loadMeals()
     } catch (error) {
       console.error('Failed to copy meals:', error)
