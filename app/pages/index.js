@@ -1,34 +1,143 @@
-import { useState, useEffect } from 'react'
-import { auth, doses, peptides } from '../lib/api'
+import { useState, useEffect, useMemo } from 'react'
+import { auth, doses, peptides, vitals, meals } from '../lib/api'
 import Link from 'next/link'
 import { 
   UserIcon,
   XMarkIcon,
-  CogIcon
+  CogIcon,
+  FireIcon,
+  PlusIcon
 } from '@heroicons/react/24/outline'
 import PharmacokineticGraph from '../components/PharmacokineticGraph'
+
+// Default calorie goal
+const DEFAULT_CALORIE_GOAL = 2500
 
 export default function LandingDashboard({ user }) {
   const [recentDoses, setRecentDoses] = useState([])
   const [availablePeptides, setAvailablePeptides] = useState([])
   const [userStack, setUserStack] = useState([])
+  const [vitalsData, setVitalsData] = useState([])
+  const [latestVitals, setLatestVitals] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
+  
+  // Calories card state
+  const [todayMeals, setTodayMeals] = useState([])
+  const [calorieGoal, setCalorieGoal] = useState(DEFAULT_CALORIE_GOAL)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [quickAddForm, setQuickAddForm] = useState({
+    food_name: '',
+    calories: '',
+    meal_type: 'snack'
+  })
 
   useEffect(() => {
     loadDashboardData()
     loadUserStack()
+    loadTodayMeals()
+    loadCalorieGoal()
   }, [])
+
+  // Load today's meals from API
+  const loadTodayMeals = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const response = await meals.getByDate(today)
+      // API returns grouped meals, flatten them into an array
+      const groupedMeals = response.meals || {}
+      const allMeals = [
+        ...(groupedMeals.breakfast || []),
+        ...(groupedMeals.lunch || []),
+        ...(groupedMeals.dinner || []),
+        ...(groupedMeals.snack || [])
+      ]
+      setTodayMeals(allMeals)
+    } catch (err) {
+      console.error('Error loading today meals:', err)
+    }
+  }
+
+  // Load calorie goal from localStorage
+  const loadCalorieGoal = () => {
+    try {
+      const saved = localStorage.getItem('peptifit_calorie_goal')
+      if (saved) {
+        setCalorieGoal(parseInt(saved, 10))
+      }
+    } catch (err) {
+      console.error('Error loading calorie goal:', err)
+    }
+  }
+
+  // Calculate today's calorie totals
+  const todayCalories = useMemo(() => {
+    return todayMeals.reduce((acc, meal) => acc + (parseInt(meal.calories) || 0), 0)
+  }, [todayMeals])
+
+  const calorieProgress = Math.min((todayCalories / calorieGoal) * 100, 100)
+  const remainingCalories = calorieGoal - todayCalories
+
+  // Quick add handlers
+  const openQuickAdd = () => {
+    setQuickAddForm({
+      food_name: '',
+      calories: '',
+      meal_type: 'snack'
+    })
+    setQuickAddOpen(true)
+  }
+
+  const closeQuickAdd = () => {
+    setQuickAddOpen(false)
+  }
+
+  const handleQuickAddChange = (e) => {
+    const { name, value } = e.target
+    setQuickAddForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  const handleQuickAddSubmit = async (e) => {
+    e.preventDefault()
+    if (!quickAddForm.food_name || !quickAddForm.calories) return
+
+    const newMeal = {
+      meal_type: quickAddForm.meal_type,
+      food_name: quickAddForm.food_name,
+      calories: parseInt(quickAddForm.calories, 10),
+      protein: null,
+      carbs: null,
+      fat: null,
+      logged_at: new Date().toISOString()
+    }
+
+    try {
+      await meals.create(newMeal)
+      await loadTodayMeals()
+      closeQuickAdd()
+    } catch (err) {
+      console.error('Error saving meal:', err)
+      alert('Failed to save meal. Please try again.')
+    }
+  }
 
   const loadDashboardData = async () => {
     try {
-      const [dosesData, peptidesData] = await Promise.all([
+      const [dosesData, peptidesData, vitalsLatest] = await Promise.all([
         doses.getAll(),
-        peptides.getAll()
+        peptides.getAll(),
+        vitals.getLatest().catch(() => null)
       ])
       setRecentDoses(dosesData)
       setAvailablePeptides(peptidesData)
+      
+      // Load vitals data for dashboard preview
+      if (vitalsLatest) {
+        const allVitals = Object.values(vitalsLatest)
+        setLatestVitals(allVitals[0] || null)
+        setVitalsData(allVitals)
+      }
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
     } finally {
@@ -165,6 +274,7 @@ export default function LandingDashboard({ user }) {
 
   // Generate full month calendar data (for reference)
   const getCalendarData = () => {
+    const currentDate = new Date()
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
     
@@ -524,23 +634,14 @@ export default function LandingDashboard({ user }) {
           </Link>
 
           {/* Future Modules */}
-          {[
-            { icon: '🏋️', title: 'Workouts', subtitle: 'Track training sessions & progress', alert: 'Exercise tracking - Coming Soon!' },
-            { icon: '💊', title: 'Supplements', subtitle: 'Manage daily supplement routine', alert: 'Supplements tracking - Coming Soon!' },
-            { icon: '📊', title: 'Vitals', subtitle: 'Monitor weight, BP, glucose & more', alert: 'Vitals tracking - Coming Soon!' }
-          ].map((module, index) => (
-            <div 
-              key={index} 
-              className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60 shadow-lg cursor-pointer hover:opacity-70 transition-opacity"
-              onClick={() => alert(module.alert)}
-            >
+          {/* Supplements Module - Active */}
+          <Link href="/supplements" className="block">
+            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1 shadow-lg hover:shadow-xl">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <div className="text-3xl mb-2">{module.icon}</div>
-                  <h3 className="text-xl font-semibold text-white">
-                    {module.title} <span className="text-sm text-gray-500 font-normal">(Coming Soon)</span>
-                  </h3>
-                  <p className="text-gray-400 text-sm">{module.subtitle}</p>
+                  <div className="text-3xl mb-2">💊</div>
+                  <h3 className="text-xl font-semibold text-white">Supplements</h3>
+                  <p className="text-gray-400 text-sm">Manage daily supplement routine</p>
                 </div>
               </div>
               
@@ -551,23 +652,219 @@ export default function LandingDashboard({ user }) {
                 </div>
                 <div>
                   <div className="text-white font-semibold">-</div>
-                  <div className="text-gray-400 text-xs">Last entry</div>
+                  <div className="text-gray-400 text-xs">Due today</div>
                 </div>
                 <div>
                   <div className="text-white font-semibold">-</div>
-                  <div className="text-gray-400 text-xs">Progress</div>
+                  <div className="text-gray-400 text-xs">In stock</div>
                 </div>
               </div>
               
-              <div className="flex items-center justify-between p-3 bg-gray-700/30 rounded-xl border border-gray-600/30">
-                <span className="text-gray-500 font-medium text-sm">Coming in next update</span>
-                <span className="text-gray-500">→</span>
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-xl border border-gray-600/50">
+                <span className="text-cyan-400 font-medium text-sm">Track your supplements</span>
+                <span className="text-cyan-400">→</span>
               </div>
             </div>
-          ))}
+          </Link>
+
+          {/* Calories Card */}
+          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-lg">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-500/20 rounded-xl flex items-center justify-center">
+                  <FireIcon className="h-6 w-6 text-orange-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Calories</h3>
+                  <p className="text-gray-400 text-xs">Today's intake</p>
+                </div>
+              </div>
+              <Link 
+                href="/meals"
+                className="text-cyan-400 hover:text-cyan-300 text-sm font-medium"
+              >
+                View all →
+              </Link>
+            </div>
+            
+            {/* Calorie Display */}
+            <div className="mb-4">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-3xl font-bold text-white">{todayCalories}</span>
+                <span className="text-gray-400 text-sm">/ {calorieGoal} kcal</span>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className="h-3 bg-gray-700 rounded-full overflow-hidden mb-2">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-500 to-yellow-400 transition-all duration-500"
+                  style={{ width: `${calorieProgress}%` }}
+                />
+              </div>
+              
+              <div className="flex items-center justify-between text-sm">
+                <span className={`font-medium ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {remainingCalories >= 0 
+                    ? `${remainingCalories} remaining` 
+                    : `${Math.abs(remainingCalories)} over budget`}
+                </span>
+                <span className="text-gray-500">{Math.round(calorieProgress)}%</span>
+              </div>
+            </div>
+            
+            {/* Quick Add Button */}
+            <button
+              onClick={openQuickAdd}
+              className="w-full bg-gray-700/50 hover:bg-gray-700 border border-gray-600/50 text-cyan-400 font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <PlusIcon className="h-5 w-5" />
+              Quick Add Food
+            </button>
+          </div>
+
+          {/* Meals Module */}
+          <Link href="/meals" className="block">
+            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1 shadow-lg hover:shadow-xl">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-3xl mb-2">🍽️</div>
+                  <h3 className="text-xl font-semibold text-white">Meals</h3>
+                  <p className="text-gray-400 text-sm">Track your nutrition & macros</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <div className="text-white font-semibold">{todayMeals.length}</div>
+                  <div className="text-gray-400 text-xs">Items today</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">{todayCalories}</div>
+                  <div className="text-gray-400 text-xs">Calories</div>
+                </div>
+                <div>
+                  <div className={`font-semibold ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {remainingCalories >= 0 ? remainingCalories : Math.abs(remainingCalories)}
+                  </div>
+                  <div className="text-gray-400 text-xs">{remainingCalories >= 0 ? 'Remaining' : 'Over'}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-xl border border-gray-600/50">
+                <span className="text-cyan-400 font-medium text-sm">Log your meals</span>
+                <span className="text-cyan-400">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Vitals Module */}
+          <Link href="/vitals" className="block">
+            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1 shadow-lg hover:shadow-xl">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-3xl mb-2">📊</div>
+                  <h3 className="text-xl font-semibold text-white">Vitals</h3>
+                  <p className="text-gray-400 text-sm">Monitor weight, BP, glucose & more</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <div className="text-white font-semibold">
+                    {vitalsData?.length || '-'}
+                  </div>
+                  <div className="text-gray-400 text-xs">Total readings</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">
+                    {latestVitals ? new Date(latestVitals.measured_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '-'}
+                  </div>
+                  <div className="text-gray-400 text-xs">Last entry</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">7</div>
+                  <div className="text-gray-400 text-xs">Vital types</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-xl border border-gray-600/50">
+                <span className="text-cyan-400 font-medium text-sm">Track your vitals</span>
+                <span className="text-cyan-400">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Blood Results Module */}
+          <Link href="/blood-results" className="block">
+            <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700 hover:border-gray-600 transition-all hover:-translate-y-1 shadow-lg hover:shadow-xl">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-3xl mb-2">🧪</div>
+                  <h3 className="text-xl font-semibold text-white">Blood Results</h3>
+                  <p className="text-gray-400 text-sm">AI-powered lab analysis & tracking</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">Panels</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">Last test</div>
+                </div>
+                <div>
+                  <div className="text-white font-semibold">-</div>
+                  <div className="text-gray-400 text-xs">Flagged</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 rounded-xl border border-gray-600/50">
+                <span className="text-cyan-400 font-medium text-sm">Log & analyze results</span>
+                <span className="text-cyan-400">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Workouts Module - Coming Soon */}
+          <div 
+            className="bg-gray-800/60 rounded-2xl p-5 border border-gray-700 opacity-60 shadow-lg cursor-pointer hover:opacity-70 transition-opacity"
+            onClick={() => alert('Exercise tracking - Coming Soon!')}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="text-3xl mb-2">🏋️</div>
+                <h3 className="text-xl font-semibold text-white">
+                  Workouts <span className="text-sm text-gray-500 font-normal">(Coming Soon)</span>
+                </h3>
+                <p className="text-gray-400 text-sm">Track training sessions & progress</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div>
+                <div className="text-white font-semibold">-</div>
+                <div className="text-gray-400 text-xs">This week</div>
+              </div>
+              <div>
+                <div className="text-white font-semibold">-</div>
+                <div className="text-gray-400 text-xs">Last entry</div>
+              </div>
+              <div>
+                <div className="text-white font-semibold">-</div>
+                <div className="text-gray-400 text-xs">Progress</div>
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-gray-700/30 rounded-xl border border-gray-600/30">
+              <span className="text-gray-500 font-medium text-sm">Coming in next update</span>
+              <span className="text-gray-500">→</span>
+            </div>
+          </div>
         </div>
 
-        {/* Bottom Navigation - 4 Prongs */}
+        {/* Bottom Navigation - 5 Prongs */}
         <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
           <div className="max-w-md mx-auto">
             <div className="grid grid-cols-5 py-2">
@@ -579,27 +876,27 @@ export default function LandingDashboard({ user }) {
                 <span className="text-xl mb-1">💉</span>
                 <span className="text-xs">Peptides</span>
               </Link>
-              <button 
-                onClick={() => alert('Exercise tracking - Coming Soon!')}
+              <Link 
+                href="/meals"
                 className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
               >
-                <span className="text-xl mb-1">🏋️</span>
-                <span className="text-xs">Exercise</span>
-              </button>
-              <button 
-                onClick={() => alert('Vitals tracking - Coming Soon!')}
+                <span className="text-xl mb-1">🍽️</span>
+                <span className="text-xs">Meals</span>
+              </Link>
+              <Link 
+                href="/vitals"
                 className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
               >
                 <span className="text-xl mb-1">📊</span>
                 <span className="text-xs">Vitals</span>
-              </button>
-              <button 
-                onClick={() => alert('Supplements tracking - Coming Soon!')}
+              </Link>
+              <Link 
+                href="/supplements"
                 className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
               >
                 <span className="text-xl mb-1">💊</span>
                 <span className="text-xs">Supplements</span>
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -687,6 +984,84 @@ export default function LandingDashboard({ user }) {
                 {selectedDay.isToday ? 'View Schedule' : 'Edit Day'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Calories Modal */}
+      {quickAddOpen && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50"
+          onClick={closeQuickAdd}
+        >
+          <div
+            className="bg-gray-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 border border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">Quick Add Food</h3>
+              <button
+                onClick={closeQuickAdd}
+                className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickAddSubmit} className="space-y-4">
+              <div>
+                <label className="text-gray-400 text-sm mb-1.5 block">
+                  Food Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="food_name"
+                  value={quickAddForm.food_name}
+                  onChange={handleQuickAddChange}
+                  placeholder="e.g., Protein Shake"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 text-sm mb-1.5 block">
+                  Calories <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="number"
+                  name="calories"
+                  value={quickAddForm.calories}
+                  onChange={handleQuickAddChange}
+                  placeholder="e.g., 250"
+                  min="0"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 text-sm mb-1.5 block">Meal Type</label>
+                <select
+                  name="meal_type"
+                  value={quickAddForm.meal_type}
+                  onChange={handleQuickAddChange}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                >
+                  <option value="breakfast">🌅 Breakfast</option>
+                  <option value="lunch">☀️ Lunch</option>
+                  <option value="dinner">🌙 Dinner</option>
+                  <option value="snack">🍿 Snack</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3.5 rounded-xl transition-colors mt-6"
+              >
+                Add Food
+              </button>
+            </form>
           </div>
         </div>
       )}

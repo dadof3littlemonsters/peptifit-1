@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  # Next.js Frontend Application
+  # Next.js Frontend
   app:
     build:
       context: ./app
@@ -10,13 +8,14 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://backend:3001
+      # Now the browser calls same-origin /api via Caddy
+      - NEXT_PUBLIC_API_URL=/api
     depends_on:
       - backend
     networks:
-      - peptifit_network
+      - stack
 
-  # Node.js Backend API
+  # Node.js Backend API (root; /health works)
   backend:
     build:
       context: ./backend
@@ -30,29 +29,99 @@ services:
     volumes:
       - ./data:/app/data
     networks:
-      - peptifit_network
+      - stack
 
-  # Nginx Reverse Proxy
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    container_name: peptifit_nginx
+  # Caddy reverse proxy (edge) — auto HTTPS
+  caddy:
+    image: caddy:alpine
+    container_name: peptifit_caddy
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - app
       - backend
-    volumes:
-      - ./nginx/ssl:/etc/nginx/ssl:ro
     networks:
-      - peptifit_network
+      - stack
+
+  # Apache Guacamole - Multi-protocol remote desktop gateway
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: peptifit_guacd
+    restart: unless-stopped
+    volumes:
+      - guacd_drive:/drive
+      - guacd_record:/record
+    networks:
+      - stack
+
+  guacamole_db:
+    image: mysql:8.0
+    container_name: peptifit_guacamole_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${GUACAMOLE_DB_ROOT_PASSWORD:-guacamole_root}
+      MYSQL_DATABASE: guacamole_db
+      MYSQL_USER: guacamole_user
+      MYSQL_PASSWORD: ${GUACAMOLE_DB_PASSWORD:-guacamole_password}
+    volumes:
+      - guacamole_db_data:/var/lib/mysql
+    networks:
+      - stack
+
+  guacamole:
+    image: guacamole/guacamole:latest
+    container_name: peptifit_guacamole
+    restart: unless-stopped
+    environment:
+      GUACD_HOSTNAME: guacd
+      GUACD_PORT: 4822
+      MYSQL_HOSTNAME: guacamole_db
+      MYSQL_DATABASE: guacamole_db
+      MYSQL_USER: guacamole_user
+      MYSQL_PASSWORD: ${GUACAMOLE_DB_PASSWORD:-guacamole_password}
+      MYSQL_AUTO_CREATE_ACCOUNTS: "true"
+    depends_on:
+      - guacd
+      - guacamole_db
+    networks:
+      - stack
+
+  # Syncthing - File Synchronization
+  syncthing:
+    image: syncthing/syncthing:latest
+    container_name: peptifit_syncthing
+    restart: unless-stopped
+    hostname: syncthing
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - STGUIADDRESS=0.0.0.0:8384
+    volumes:
+      - ./syncthing-config:/var/syncthing/config
+      - syncthing_data:/var/syncthing/Sync
+      - /home/peptifit/transcription-pipeline/uploads:/var/syncthing/uploads
+      - /home/peptifit/transcription-pipeline/outputs/docs:/var/syncthing/kate-outputs:ro
+      - /home/peptifit/transcription-pipeline/outputs/docs/keira:/var/syncthing/keira-outputs:ro
+    networks:
+      - stack
+    # Don't expose ports directly - access through Caddy reverse proxy
 
 networks:
-  peptifit_network:
+  stack:
     driver: bridge
 
 volumes:
   data:
+  caddy_data:
+  caddy_config:
+  guacd_drive:
+  guacd_record:
+  guacamole_db_data:
+  syncthing_config:
+  syncthing_data:
