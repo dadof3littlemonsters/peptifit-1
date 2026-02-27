@@ -1004,10 +1004,10 @@ export default function BloodResultsPage() {
               <span className="text-xl mb-1">📊</span>
               <span className="text-xs">Vitals</span>
             </Link>
-            <Link href="/supplements" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💊</span>
-              <span className="text-xs">Supplements</span>
-            </Link>
+            <div className="flex flex-col items-center py-2 text-cyan-400">
+              <span className="text-xl mb-1">🧪</span>
+              <span className="text-xs">Blood Results</span>
+            </div>
           </div>
         </div>
       </div>

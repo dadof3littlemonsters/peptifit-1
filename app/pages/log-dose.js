@@ -122,7 +122,10 @@ export default function LogDose() {
       setAvailablePeptides(peptidesData || [])
     } catch (err) {
       console.error('Failed to load data:', err)
-      setError('Failed to load your peptide configurations')
+      // 404 = no configs yet (empty state) — not a real error
+      if (err?.response?.status !== 404) {
+        setError('Failed to load your peptide configurations')
+      }
     } finally {
       setLoading(false)
     }
@@ -288,7 +291,7 @@ export default function LogDose() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-md mx-auto px-5 py-6">
+      <main className="max-w-md mx-auto px-5 py-6 pb-24">
         {/* Error Banner */}
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
@@ -569,6 +572,34 @@ export default function LogDose() {
           </div>
         )}
       </main>
+
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
+        <div className="max-w-md mx-auto">
+          <div className="grid grid-cols-5 py-2">
+            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">🏠</span>
+              <span className="text-xs">Dashboard</span>
+            </Link>
+            <div className="flex flex-col items-center py-2 text-cyan-400">
+              <span className="text-xl mb-1">💉</span>
+              <span className="text-xs">Peptides</span>
+            </div>
+            <Link href="/meals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">🍽️</span>
+              <span className="text-xs">Meals</span>
+            </Link>
+            <Link href="/vitals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">📊</span>
+              <span className="text-xs">Vitals</span>
+            </Link>
+            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">🧪</span>
+              <span className="text-xs">Blood Results</span>
+            </Link>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

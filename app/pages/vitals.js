@@ -16,7 +16,6 @@ import {
   XMarkIcon,
   MicrophoneIcon,
   HeartIcon,
-  FireIcon,
   ScaleIcon,
   BeakerIcon,
   BoltIcon
@@ -74,16 +73,6 @@ const VITAL_TYPES = {
     max: 600,
     step: 1,
     quickValues: [80, 90, 100, 110, 120]
-  },
-  calories: {
-    label: 'Calories',
-    unit: 'kcal',
-    icon: FireIcon,
-    color: '#f97316', // orange-500
-    min: 0,
-    max: 10000,
-    step: 10,
-    quickValues: [1500, 1800, 2000, 2200, 2500]
   },
   heart_rate: {
     label: 'Heart Rate',
@@ -391,17 +380,21 @@ export default function VitalsPage() {
       {/* View Tabs */}
       <div className="max-w-md mx-auto px-5 mt-4">
         <div className="bg-gray-800 rounded-xl p-1 flex gap-1">
-          {['dashboard', 'log', 'history'].map((view) => (
+          {[
+            { id: 'dashboard', label: 'Dashboard' },
+            { id: 'log', label: 'Log' },
+            { id: 'history', label: 'History' }
+          ].map(({ id, label }) => (
             <button
-              key={view}
-              onClick={() => setActiveView(view)}
-              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors capitalize ${
-                activeView === view
+              key={id}
+              onClick={() => setActiveView(id)}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                activeView === id
                   ? 'bg-cyan-500 text-black'
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              {view}
+              {label}
             </button>
           ))}
         </div>
@@ -857,12 +850,12 @@ export default function VitalsPage() {
               <span className="text-xl mb-1">📊</span>
               <span className="text-xs">Vitals</span>
             </div>
-            <Link 
-              href="/supplements"
+            <Link
+              href="/blood-results"
               className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
             >
-              <span className="text-xl mb-1">💊</span>
-              <span className="text-xs">Supplements</span>
+              <span className="text-xl mb-1">🧪</span>
+              <span className="text-xs">Blood Results</span>
             </Link>
           </div>
         </div>

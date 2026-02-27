@@ -490,9 +490,11 @@ export default function SupplementsPage() {
               <h2 className="text-lg font-semibold text-white">
                 {new Date().toLocaleDateString('en-GB', { weekday: 'long', month: 'short', day: 'numeric' })}
               </h2>
-              <span className="text-sm text-gray-400">
-                {getTodaysSupplements().filter(s => isTakenToday(s.id)).length} / {getTodaysSupplements().length} taken
-              </span>
+              {getTodaysSupplements().length > 0 && (
+                <span className="text-sm text-gray-400">
+                  {getTodaysSupplements().filter(s => isTakenToday(s.id)).length} / {getTodaysSupplements().length} taken
+                </span>
+              )}
             </div>
 
             {getTodaysSupplements().length === 0 ? (
@@ -1061,10 +1063,10 @@ export default function SupplementsPage() {
               <span className="text-xl mb-1">📊</span>
               <span className="text-xs">Vitals</span>
             </Link>
-            <div className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">💊</span>
-              <span className="text-xs">Supplements</span>
-            </div>
+            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">🧪</span>
+              <span className="text-xs">Blood Results</span>
+            </Link>
           </div>
         </div>
       </div>

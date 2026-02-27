@@ -540,22 +540,6 @@ export default function LandingDashboard({ user }) {
             </div>
           </div>
 
-          {/* Configure Peptide Stack CTA Banner */}
-          {userStack.length === 0 && (
-            <Link
-              href="/configure-peptides"
-              className="block bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl p-3 hover:from-cyan-500 hover:to-blue-500 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-xl">⚙️</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm">Configure Your Peptide Stack</div>
-                  <div className="text-xs opacity-80">Set up personalized dosing schedules</div>
-                </div>
-                <ChevronRightIcon className="h-5 w-5 flex-shrink-0" />
-              </div>
-            </Link>
-          )}
 
           {/* Next Dose Alert */}
           {nextDose && (
@@ -678,14 +662,10 @@ export default function LandingDashboard({ user }) {
             </div>
 
             {/* Stats row */}
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-2 gap-2 mb-3">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-white truncate">{todayMeals.length}</div>
                 <div className="text-gray-500 text-xs truncate">Meals</div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-orange-400 truncate">{todayCalories}</div>
-                <div className="text-gray-500 text-xs truncate">Calories</div>
               </div>
               <div className="min-w-0">
                 <div className={`text-sm font-semibold truncate ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -750,7 +730,7 @@ export default function LandingDashboard({ user }) {
             stats={[
               { value: vitalsData?.length || '-', label: 'Readings' },
               { value: latestVitals ? new Date(latestVitals.measured_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '-', label: 'Last' },
-              { value: '7', label: 'Types' }
+              { value: '-', label: 'Types' }
             ]}
             ctaText="Track vitals"
             href="/vitals"
@@ -782,6 +762,7 @@ export default function LandingDashboard({ user }) {
             ]}
             ctaText="Coming soon"
             comingSoon
+            className="col-span-full"
           />
         </div>
 
@@ -809,9 +790,9 @@ export default function LandingDashboard({ user }) {
               <span className="text-lg mb-0.5">📊</span>
               <span className="text-[10px]">Vitals</span>
             </Link>
-            <Link href="/supplements" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
-              <span className="text-lg mb-0.5">💊</span>
-              <span className="text-[10px]">Supplements</span>
+            <Link href="/blood-results" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
+              <span className="text-lg mb-0.5">🧪</span>
+              <span className="text-[10px]">Blood Results</span>
             </Link>
           </div>
         </div>

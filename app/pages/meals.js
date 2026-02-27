@@ -618,9 +618,9 @@ export default function Meals({ user }) {
               <span className="text-xl mb-1">📊</span>
               <span className="text-xs">Vitals</span>
             </Link>
-            <Link href="/supplements" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💊</span>
-              <span className="text-xs">Supplements</span>
+            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
+              <span className="text-xl mb-1">🧪</span>
+              <span className="text-xs">Blood Results</span>
             </Link>
           </div>
         </div>
