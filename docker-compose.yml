@@ -4,12 +4,16 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* variables are inlined by the Next.js compiler at BUILD
+        # TIME — setting them only under `environment:` below is too late (that
+        # is runtime). They must be passed as build args so they are baked into
+        # the client-side JS bundle during `npm run build`.
+        - NEXT_PUBLIC_API_URL=/api
     container_name: peptifit_app
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      # Now the browser calls same-origin /api via Caddy
-      - NEXT_PUBLIC_API_URL=/api
     depends_on:
       - backend
     networks:
