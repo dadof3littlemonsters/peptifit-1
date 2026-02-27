@@ -9,7 +9,6 @@ import {
   PlusIcon,
   ChevronRightIcon
 } from '@heroicons/react/24/outline'
-import PharmacokineticGraph from '../components/PharmacokineticGraph'
 
 // Default calorie goal
 const DEFAULT_CALORIE_GOAL = 2500
@@ -24,7 +23,8 @@ function SectionCard({
   href,
   onClick,
   comingSoon = false,
-  className = ''
+  className = '',
+  children
 }) {
   const CardWrapper = href ? Link : 'div'
   const wrapperProps = href ? { href } : { onClick }
@@ -51,8 +51,11 @@ function SectionCard({
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="flex items-center gap-4 mb-3">
+      {/* Optional custom content (e.g., progress bar) */}
+      {children}
+
+      {/* Stats row - grid for even distribution */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
         {stats.map((stat, i) => (
           <div key={i} className="min-w-0">
             <div className={`text-sm font-semibold ${stat.color || 'text-white'} truncate`}>
@@ -87,7 +90,7 @@ export default function LandingDashboard({ user }) {
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
-  
+
   // Calories card state
   const [todayMeals, setTodayMeals] = useState([])
   const [calorieGoal, setCalorieGoal] = useState(DEFAULT_CALORIE_GOAL)
@@ -97,6 +100,9 @@ export default function LandingDashboard({ user }) {
     calories: '',
     meal_type: 'snack'
   })
+
+  // Due Today collapsible state
+  const [dueTodayExpanded, setDueTodayExpanded] = useState(false)
 
   useEffect(() => {
     loadDashboardData()
@@ -137,9 +143,22 @@ export default function LandingDashboard({ user }) {
   }
 
   // Calculate today's calorie totals
+  // IMPORTANT: All hooks must be declared before any early returns (Rules of Hooks).
   const todayCalories = useMemo(() => {
     return todayMeals.reduce((acc, meal) => acc + (parseInt(meal.calories) || 0), 0)
   }, [todayMeals])
+
+  // Calculate which stack items are still due today (no dose logged today).
+  // Must be here — above the `if (loading) return` — so hook count is constant
+  // across every render regardless of loading state.
+  const itemsDueToday = useMemo(() => {
+    return userStack.filter(stackItem => {
+      const lastDose = recentDoses
+        .filter(dose => dose.peptide_id === stackItem.peptide_id)
+        .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
+      return !lastDose || new Date(lastDose.administration_time).toDateString() !== new Date().toDateString()
+    })
+  }, [userStack, recentDoses])
 
   const calorieProgress = Math.min((todayCalories / calorieGoal) * 100, 100)
   const remainingCalories = calorieGoal - todayCalories
@@ -196,7 +215,7 @@ export default function LandingDashboard({ user }) {
       ])
       setRecentDoses(dosesData)
       setAvailablePeptides(peptidesData)
-      
+
       // Load vitals data for dashboard preview
       if (vitalsLatest) {
         const allVitals = Object.values(vitalsLatest)
@@ -225,17 +244,17 @@ export default function LandingDashboard({ user }) {
   // Calculate stats for the week - prioritize user's configured peptides
   const getWeeklyStats = () => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    const thisWeekDoses = recentDoses.filter(dose => 
+    const thisWeekDoses = recentDoses.filter(dose =>
       new Date(dose.administration_time) > weekAgo
     )
-    
+
     // If user has configured peptides, only count those
-    const relevantDoses = userStack.length > 0 
-      ? thisWeekDoses.filter(dose => 
+    const relevantDoses = userStack.length > 0
+      ? thisWeekDoses.filter(dose =>
           userStack.some(item => item.peptide_id === dose.peptide_id)
         )
       : thisWeekDoses
-    
+
     return {
       peptides: relevantDoses.length,
       workouts: 0, // Future implementation
@@ -247,27 +266,27 @@ export default function LandingDashboard({ user }) {
   // Calculate next dose info based on user's configured schedules
   const getNextDoseInfo = () => {
     if (userStack.length === 0 || recentDoses.length === 0) return null
-    
+
     // Find next dose based on user's configured schedules
     let nextDoseInfo = null
     let earliestTime = Infinity
-    
+
     userStack.forEach(stackItem => {
       const peptideDoses = recentDoses.filter(dose => dose.peptide_id === stackItem.peptide_id)
       if (peptideDoses.length === 0) return
-      
+
       const lastDose = peptideDoses[0]
       const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
       const schedule = stackItem.schedule
-      
+
       if (schedule.frequency === 'weekly') {
         const lastDoseTime = new Date(lastDose.administration_time)
         const nextDoseTime = new Date(lastDoseTime.getTime() + (7 * 24 * 60 * 60 * 1000))
-        
+
         if (nextDoseTime.getTime() < earliestTime) {
           earliestTime = nextDoseTime.getTime()
           const timeUntilNext = nextDoseTime.getTime() - Date.now()
-          
+
           if (timeUntilNext <= 0) {
             nextDoseInfo = {
               isReady: true,
@@ -278,7 +297,7 @@ export default function LandingDashboard({ user }) {
           } else {
             const hours = Math.floor(timeUntilNext / (1000 * 60 * 60))
             const minutes = Math.floor((timeUntilNext % (1000 * 60 * 60)) / (1000 * 60))
-            
+
             nextDoseInfo = {
               isReady: false,
               peptideName: peptide?.name,
@@ -291,7 +310,7 @@ export default function LandingDashboard({ user }) {
       }
       // TODO: Add logic for other frequency types (custom-weekly, daily, etc.)
     })
-    
+
     return nextDoseInfo
   }
 
@@ -300,24 +319,24 @@ export default function LandingDashboard({ user }) {
     const today = new Date()
     const startOfWeek = new Date(today)
     startOfWeek.setDate(today.getDate() - today.getDay()) // Start from Sunday
-    
+
     const days = []
     const currentDateObj = new Date(startOfWeek)
-    
+
     // Generate 7 days (this week)
     for (let i = 0; i < 7; i++) {
       const dayDoses = recentDoses.filter(dose => {
         const doseDate = new Date(dose.administration_time)
         return doseDate.toDateString() === currentDateObj.toDateString()
       })
-      
+
       // Filter to user's configured peptides if they have any
-      const relevantDoses = userStack.length > 0 
-        ? dayDoses.filter(dose => 
+      const relevantDoses = userStack.length > 0
+        ? dayDoses.filter(dose =>
             userStack.some(item => item.peptide_id === dose.peptide_id)
           )
         : dayDoses
-      
+
       days.push({
         date: new Date(currentDateObj),
         dayNumber: currentDateObj.getDate(),
@@ -326,14 +345,14 @@ export default function LandingDashboard({ user }) {
         isThisWeek: true,
         doses: relevantDoses,
         hasActivity: relevantDoses.length > 0,
-        workouts: [], 
+        workouts: [],
         supplements: [],
         vitals: []
       })
-      
+
       currentDateObj.setDate(currentDateObj.getDate() + 1)
     }
-    
+
     return days
   }
 
@@ -342,29 +361,29 @@ export default function LandingDashboard({ user }) {
     const currentDate = new Date()
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
-    
+
     const firstDay = new Date(year, month, 1)
     const lastDay = new Date(year, month + 1, 0)
     const startDate = new Date(firstDay)
     startDate.setDate(startDate.getDate() - firstDay.getDay())
-    
+
     const days = []
     const currentDateObj = new Date(startDate)
-    
+
     // Generate 42 days (6 weeks)
     for (let i = 0; i < 42; i++) {
       const dayDoses = recentDoses.filter(dose => {
         const doseDate = new Date(dose.administration_time)
         return doseDate.toDateString() === currentDateObj.toDateString()
       })
-      
+
       // Filter to user's configured peptides if they have any
-      const relevantDoses = userStack.length > 0 
-        ? dayDoses.filter(dose => 
+      const relevantDoses = userStack.length > 0
+        ? dayDoses.filter(dose =>
             userStack.some(item => item.peptide_id === dose.peptide_id)
           )
         : dayDoses
-      
+
       days.push({
         date: new Date(currentDateObj),
         dayNumber: currentDateObj.getDate(),
@@ -372,14 +391,14 @@ export default function LandingDashboard({ user }) {
         isToday: currentDateObj.toDateString() === new Date().toDateString(),
         doses: relevantDoses,
         hasActivity: relevantDoses.length > 0,
-        workouts: [], 
+        workouts: [],
         supplements: [],
         vitals: []
       })
-      
+
       currentDateObj.setDate(currentDateObj.getDate() + 1)
     }
-    
+
     return days
   }
 
@@ -415,11 +434,12 @@ export default function LandingDashboard({ user }) {
   const formatDate = () => {
     return new Date().toLocaleDateString('en-GB', {
       weekday: 'long',
-      month: 'long', 
+      month: 'long',
       day: 'numeric'
     })
   }
 
+  // ── All hooks are above this line. No hooks may appear below. ──
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -438,7 +458,7 @@ export default function LandingDashboard({ user }) {
     <div className="min-h-screen bg-black text-white">
       {/* Header */}
       <header className="bg-black border-b border-gray-800">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-white">PeptiFit</h1>
@@ -464,7 +484,7 @@ export default function LandingDashboard({ user }) {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-4">
+      <div className="max-w-6xl mx-auto px-4 py-4">
         {/* ===== HERO SECTION ===== */}
         <div className="mb-6 space-y-4">
           {/* This Week Calendar + Stats - Hero Widget */}
@@ -562,82 +582,82 @@ export default function LandingDashboard({ user }) {
             </Link>
           )}
 
-          {/* Due Today (compact, only if peptides configured) */}
-          {userStack.length > 0 && (
-            <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-white">Due Today</h3>
-                <span className="text-gray-500 text-xs">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}</span>
-              </div>
-              <div className="space-y-2">
-                {userStack.map((stackItem, index) => {
-                  const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
-                  const lastDose = recentDoses
-                    .filter(dose => dose.peptide_id === stackItem.peptide_id)
-                    .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
-                  const isDueToday = lastDose
-                    ? new Date(lastDose.administration_time).toDateString() !== new Date().toDateString()
-                    : true
-                  return (
-                    <div
-                      key={index}
-                      className={`flex items-center justify-between p-2.5 rounded-lg ${
-                        isDueToday ? 'bg-cyan-600/10 border border-cyan-500/20' : 'bg-gray-700/40'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-base">💉</span>
-                        <div className="min-w-0">
-                          <div className="text-white text-sm font-medium truncate">{peptide?.name}</div>
-                          <div className="text-gray-400 text-xs">
-                            {stackItem.schedule.doses[0]?.amount}{stackItem.schedule.doses[0]?.unit}
+          {/* Due Today (collapsible, only if peptides configured AND items are due) */}
+          {userStack.length > 0 && itemsDueToday.length > 0 && (
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setDueTodayExpanded(!dueTodayExpanded)}
+                className="w-full flex items-center justify-between p-3 hover:bg-gray-750 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white">Due Today</h3>
+                  <span className="bg-cyan-500/20 text-cyan-400 text-xs px-1.5 py-0.5 rounded font-medium">
+                    {itemsDueToday.length}
+                  </span>
+                </div>
+                <ChevronRightIcon className={`h-4 w-4 text-gray-400 transition-transform ${dueTodayExpanded ? 'rotate-90' : ''}`} />
+              </button>
+              {dueTodayExpanded && (
+                <div className="px-3 pb-3 space-y-2">
+                  {userStack.map((stackItem, index) => {
+                    const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
+                    const lastDose = recentDoses
+                      .filter(dose => dose.peptide_id === stackItem.peptide_id)
+                      .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
+                    const isDueToday = lastDose
+                      ? new Date(lastDose.administration_time).toDateString() !== new Date().toDateString()
+                      : true
+                    return (
+                      <div
+                        key={index}
+                        className={`flex items-center justify-between p-2.5 rounded-lg ${
+                          isDueToday ? 'bg-cyan-600/10 border border-cyan-500/20' : 'bg-gray-700/40'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-base">💉</span>
+                          <div className="min-w-0">
+                            <div className="text-white text-sm font-medium truncate">{peptide?.name}</div>
+                            <div className="text-gray-400 text-xs">
+                              {stackItem.schedule.doses[0]?.amount}{stackItem.schedule.doses[0]?.unit}
+                            </div>
                           </div>
                         </div>
+                        {isDueToday ? (
+                          <Link
+                            href="/log-dose"
+                            className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-2.5 py-1 rounded text-xs transition-colors flex-shrink-0"
+                          >
+                            Log
+                          </Link>
+                        ) : (
+                          <span className="text-green-400 text-xs font-medium bg-green-500/20 px-2 py-0.5 rounded flex-shrink-0">✓ Done</span>
+                        )}
                       </div>
-                      {isDueToday ? (
-                        <Link
-                          href="/log-dose"
-                          className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-2.5 py-1 rounded text-xs transition-colors flex-shrink-0"
-                        >
-                          Log
-                        </Link>
-                      ) : (
-                        <span className="text-green-400 text-xs font-medium bg-green-500/20 px-2 py-0.5 rounded flex-shrink-0">✓ Done</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
-
-          {/* GLP-1 Pharmacokinetic Graph */}
-          <PharmacokineticGraph
-            recentDoses={recentDoses}
-            userStack={userStack}
-            availablePeptides={availablePeptides}
-          />
         </div>
 
-        {/* ===== CALORIES CARD (Prominent) ===== */}
-        <div className="mb-6">
-          <div className="bg-gradient-to-br from-gray-800 to-gray-800/80 rounded-xl p-4 border border-orange-500/20 shadow-lg shadow-orange-500/5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-orange-500/20 rounded-lg flex items-center justify-center">
-                  <FireIcon className="h-5 w-5 text-orange-500" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-white">Calories</h3>
-                  <p className="text-gray-500 text-xs">Today's intake</p>
-                </div>
+        {/* ===== SECTION CARDS GRID ===== */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-6">
+          {/* Meals/Calories Card (Prominent, full width on sm screens) */}
+          <div className="sm:col-span-2 bg-gradient-to-br from-gray-800 to-gray-800/80 rounded-xl p-4 border border-orange-500/20 shadow-lg shadow-orange-500/5">
+            {/* Header row */}
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <FireIcon className="h-6 w-6 text-orange-500" />
               </div>
-              <Link href="/meals" className="text-cyan-400 hover:text-cyan-300 text-xs font-medium">
-                View all →
-              </Link>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-semibold text-white truncate">Meals & Calories</h3>
+                <p className="text-gray-400 text-xs truncate">Today's nutrition</p>
+              </div>
             </div>
 
-            {/* Progress Display */}
+            {/* Progress bar inline */}
             <div className="mb-3">
               <div className="flex items-baseline gap-2 mb-1.5">
                 <span className="text-2xl font-bold text-white">{todayCalories}</span>
@@ -657,30 +677,54 @@ export default function LandingDashboard({ user }) {
               </div>
             </div>
 
-            {/* Quick Add */}
-            <button
-              onClick={openQuickAdd}
-              className="w-full bg-gray-700/50 hover:bg-gray-700 border border-gray-600/50 text-cyan-400 font-medium py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-            >
-              <PlusIcon className="h-4 w-4" />
-              Quick Add Food
-            </button>
-          </div>
-        </div>
+            {/* Stats row */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white truncate">{todayMeals.length}</div>
+                <div className="text-gray-500 text-xs truncate">Meals</div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-orange-400 truncate">{todayCalories}</div>
+                <div className="text-gray-500 text-xs truncate">Calories</div>
+              </div>
+              <div className="min-w-0">
+                <div className={`text-sm font-semibold truncate ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {remainingCalories >= 0 ? remainingCalories : Math.abs(remainingCalories)}
+                </div>
+                <div className="text-gray-500 text-xs truncate">{remainingCalories >= 0 ? 'Left' : 'Over'}</div>
+              </div>
+            </div>
 
-        {/* ===== SECTION CARDS GRID ===== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-6">
+            {/* Action buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={openQuickAdd}
+                className="flex-1 bg-gray-700/50 hover:bg-gray-700 border border-gray-600/50 text-cyan-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+              >
+                <PlusIcon className="h-4 w-4" />
+                Quick Add
+              </button>
+              <Link
+                href="/meals"
+                className="flex-1 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+              >
+                View All
+                <ChevronRightIcon className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+
           {/* Peptides */}
           <SectionCard
             icon="💉"
             title="Peptides"
-            subtitle="Track your protocols"
+            subtitle="Protocols & PK graphs"
             stats={[
               { value: userStack.length > 0 ? userStack.length : availablePeptides.length, label: userStack.length > 0 ? 'In stack' : 'Available' },
               { value: stats.peptides, label: 'This week' },
               { value: userStack.length > 0 ? '95%' : '-', label: 'Adherence' }
             ]}
-            ctaText={userStack.length > 0 ? 'View stack' : 'Setup stack'}
+            ctaText={userStack.length > 0 ? 'View stack & PK' : 'Setup stack'}
             href="/log-dose"
           />
 
@@ -696,20 +740,6 @@ export default function LandingDashboard({ user }) {
             ]}
             ctaText="Track supplements"
             href="/supplements"
-          />
-
-          {/* Meals */}
-          <SectionCard
-            icon="🍽️"
-            title="Meals"
-            subtitle="Nutrition & macros"
-            stats={[
-              { value: todayMeals.length, label: 'Today' },
-              { value: todayCalories, label: 'Calories' },
-              { value: remainingCalories >= 0 ? remainingCalories : Math.abs(remainingCalories), label: remainingCalories >= 0 ? 'Left' : 'Over', color: remainingCalories >= 0 ? 'text-green-400' : 'text-red-400' }
-            ]}
-            ctaText="Log meals"
-            href="/meals"
           />
 
           {/* Vitals */}
@@ -761,7 +791,7 @@ export default function LandingDashboard({ user }) {
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-5 py-1.5">
             <div className="flex flex-col items-center py-1.5 text-cyan-400">
               <span className="text-lg mb-0.5">🏠</span>

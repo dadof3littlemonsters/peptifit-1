@@ -1,0 +1,15 @@
+# Never send these into the Docker build context.
+# Without this file, the .next/cache directory gets copied into the builder
+# stage and Next.js uses stale webpack artifacts — producing bundle files that
+# don't match the current source code.
+
+node_modules
+.next
+.env.local
+.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.swp
+*.swo
