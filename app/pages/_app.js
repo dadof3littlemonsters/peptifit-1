@@ -9,22 +9,32 @@ export default function App({ Component, pageProps }) {
   const router = useRouter()
 
   useEffect(() => {
-    // Check if user is authenticated on app load
     const currentUser = auth.getCurrentUser()
     const isAuthenticated = auth.isAuthenticated()
-    
-    setUser(currentUser)
-    setLoading(false)
 
-    // Redirect logic
     const publicPages = ['/login', '/register']
     const isPublicPage = publicPages.includes(router.pathname)
 
+    // If a redirect is required, fire it and keep the loading spinner visible
+    // until the new route mounts. This prevents the target page component
+    // from rendering (and calling its hooks) before the navigation completes,
+    // which was causing React error #310 "Rendered more hooks than during the
+    // previous render" — LandingDashboard briefly rendered all 14 of its hooks
+    // at the same moment as the unauthenticated redirect, creating a hook-count
+    // mismatch that crashed React 18's concurrent renderer.
     if (!isAuthenticated && !isPublicPage) {
       router.push('/login')
-    } else if (isAuthenticated && isPublicPage) {
-      router.push('/')
+      return
     }
+
+    if (isAuthenticated && isPublicPage) {
+      router.push('/')
+      return
+    }
+
+    // No redirect needed — the user belongs on this page. Reveal it.
+    setUser(currentUser)
+    setLoading(false)
   }, [router.pathname])
 
   if (loading) {
