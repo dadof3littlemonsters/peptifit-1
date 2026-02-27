@@ -467,18 +467,19 @@ export default function LandingDashboard({ user }) {
             <div className="flex items-center gap-1">
               <span className="text-gray-400 text-sm mr-2 hidden sm:inline">{user?.username}</span>
               <Link
-                href="/configure-peptides"
+                href="/settings"
                 className="p-2 text-cyan-400 hover:text-cyan-300 transition-colors"
-                title="Configure Peptides"
+                title="Settings"
               >
                 <CogIcon className="h-5 w-5" />
               </Link>
-              <button
-                onClick={auth.logout}
+              <Link
+                href="/settings"
                 className="p-2 text-gray-400 hover:text-white transition-colors"
+                title="Settings"
               >
                 <UserIcon className="h-5 w-5" />
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -534,7 +535,7 @@ export default function LandingDashboard({ user }) {
                 <div className="text-gray-500">Doses</div>
               </div>
               <div className="text-center">
-                <div className="text-orange-400 font-semibold">{userStack.length > 0 ? '85%' : '-'}</div>
+                <div className="text-orange-400 font-semibold">{userStack.length > 0 ? (localStorage.getItem('peptifit_adherence_goal') || '80') + '%' : '-'}</div>
                 <div className="text-gray-500">Adherence</div>
               </div>
             </div>
