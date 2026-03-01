@@ -349,7 +349,7 @@ export default function FoodPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-md px-4 pb-36 pt-3">
+      <main className="page-content mx-auto w-full max-w-md px-4 pb-24 pt-3">
         <div className="sticky top-0 z-20 -mx-4 border-b border-gray-800 bg-gray-900 px-4 pb-3">
           <div className="grid grid-cols-4 gap-2">
             {MEAL_TYPES.map((meal) => (

@@ -107,24 +107,24 @@ function StatRow({ icon, label, value, color }) {
 function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
   const remaining = goal - consumed + exerciseCalories
   const percent = Math.min((consumed / goal) * 100, 100)
-  const radius = 70
+  const radius = 54
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (percent / 100) * circumference
   const isOver = remaining < 0
 
   return (
-    <div className="bg-gray-800 rounded-2xl p-5 mx-4 mt-3">
-      <div className="flex items-center gap-6">
+    <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
+      <div className="flex items-center gap-5">
         <div className="relative flex-shrink-0">
-          <svg width="160" height="160" className="-rotate-90">
-            <circle cx="80" cy="80" r={radius} fill="none" stroke="#374151" strokeWidth="12" />
+          <svg width="128" height="128" className="-rotate-90">
+            <circle cx="64" cy="64" r={radius} fill="none" stroke="#374151" strokeWidth="10" />
             <circle
-              cx="80"
-              cy="80"
+              cx="64"
+              cy="64"
               r={radius}
               fill="none"
               stroke={isOver ? '#ef4444' : '#06b6d4'}
-              strokeWidth="12"
+              strokeWidth="10"
               strokeLinecap="round"
               strokeDasharray={circumference}
               strokeDashoffset={offset}
@@ -132,10 +132,10 @@ function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-3xl font-bold ${isOver ? 'text-red-400' : 'text-white'}`}>
+            <span className={`text-2xl font-bold ${isOver ? 'text-red-400' : 'text-white'}`}>
               {Math.abs(remaining)}
             </span>
-            <span className="text-xs text-gray-400">{isOver ? 'over' : 'remaining'}</span>
+            <span className="text-[10px] text-gray-400">{isOver ? 'over' : 'remaining'}</span>
           </div>
         </div>
 
@@ -661,7 +661,7 @@ export default function LandingDashboard({ user }) {
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
-      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900">
+      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900 border-b border-gray-800">
         <div>
           <h1 className="text-xl font-bold text-white">Today</h1>
           <p className="text-xs text-gray-400">{formatDate()}</p>
@@ -671,7 +671,7 @@ export default function LandingDashboard({ user }) {
         </Link>
       </header>
 
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="page-content pb-24">
         <div className="px-4 pt-3">
           <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4">
             <div className="flex items-center justify-between gap-4">

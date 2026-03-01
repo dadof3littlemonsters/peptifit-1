@@ -1,0 +1,451 @@
+From 643cceec6cfed1b2402ede45800debc27dfd8bc9 Mon Sep 17 00:00:00 2001
+From: Craig Hart <craig.d.hart3@gmail.com>
+Date: Sun, 1 Mar 2026 19:13:08 +0000
+Subject: [PATCH] Fix mobile layout: unified CSS, consistent scroll containers,
+ compact nav
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Rewrote mobile.css: removed triple overflow lock, fixed aggressive
+  44px min-height on ALL buttons/links (now only primary interactives),
+  added btn-compact opt-out class for inline buttons
+- Rewrote globals.css: removed light theme body (bg-gray-50 → bg-gray-900),
+  removed duplicate tap target rules, updated component classes to dark theme
+- Fixed _app.js loading spinner to use dark theme
+- Dashboard: use page-content class, add border-b to header, shrink
+  CalorieRing SVG from 160px to 128px for mobile
+- BottomNav: add backdrop-blur, reduce icon size (2xl→xl), tighten padding
+  (py-3→py-2, min-h-56→52), smaller labels (xs→[10px])
+- Standardised all pages to pb-24 bottom padding for nav clearance:
+  meals (was pb-40), food (was pb-36), log-dose (had none),
+  configure-peptides (had none), peptides (had none), peptides/[id] (had none)
+
+All 19 pages now use shared BottomNav + page-content scroll pattern.
+Build passes cleanly.
+---
+ app/components/BottomNav.js     | 12 ++---
+ app/pages/_app.js               |  6 +--
+ app/pages/configure-peptides.js |  2 +-
+ app/pages/food.js               |  2 +-
+ app/pages/index.js              | 24 +++++-----
+ app/pages/log-dose.js           |  2 +-
+ app/pages/meals.js              |  2 +-
+ app/pages/peptides.js           |  2 +-
+ app/pages/peptides/[id].js      |  2 +-
+ app/styles/globals.css          | 67 ++++++--------------------
+ app/styles/mobile.css           | 83 +++++++++++++++++++++++----------
+ 11 files changed, 100 insertions(+), 104 deletions(-)
+
+diff --git a/app/components/BottomNav.js b/app/components/BottomNav.js
+index d6da7cb..3091e8c 100644
+--- a/app/components/BottomNav.js
++++ b/app/components/BottomNav.js
+@@ -11,8 +11,8 @@ const NAV_ITEMS = [
+ export default function BottomNav({ active }) {
+   return (
+     <nav
+-      className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 border-t border-gray-800"
+-      style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
++      className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800"
++      style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+     >
+       <div className="grid grid-cols-5 max-w-lg mx-auto">
+           {NAV_ITEMS.map((item) => {
+@@ -23,12 +23,12 @@ export default function BottomNav({ active }) {
+                 key={item.id}
+                 href={item.href}
+                 aria-current={isActive ? 'page' : undefined}
+-                className={`flex flex-col items-center justify-center py-3 min-h-[56px] active:opacity-70 transition-colors ${
+-                  isActive ? 'text-cyan-400' : 'text-gray-500'
++                className={`flex flex-col items-center justify-center py-2 min-h-[52px] active:opacity-70 transition-colors ${
++                  isActive ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'
+                 }`}
+               >
+-                <span className="text-2xl mb-1">{item.icon}</span>
+-                <span className="text-xs font-medium">{item.label}</span>
++                <span className="text-xl mb-0.5">{item.icon}</span>
++                <span className={`text-[10px] font-medium ${isActive ? 'text-cyan-400' : 'text-gray-500'}`}>{item.label}</span>
+               </Link>
+             )
+           })}
+diff --git a/app/pages/_app.js b/app/pages/_app.js
+index 3ac1b33..20cebca 100644
+--- a/app/pages/_app.js
++++ b/app/pages/_app.js
+@@ -49,10 +49,10 @@ export default function App({ Component, pageProps }) {
+           />
+           <meta name="mobile-web-app-capable" content="yes" />
+         </Head>
+-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
++        <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+           <div className="text-center">
+-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+-            <p className="mt-4 text-gray-600">Loading PeptiFit...</p>
++            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
++            <p className="mt-4 text-gray-400">Loading PeptiFit...</p>
+           </div>
+         </div>
+       </>
+diff --git a/app/pages/configure-peptides.js b/app/pages/configure-peptides.js
+index ed1bda6..486882d 100644
+--- a/app/pages/configure-peptides.js
++++ b/app/pages/configure-peptides.js
+@@ -799,7 +799,7 @@ export default function PeptideConfigurationWizard() {
+         </div>
+       </header>
+ 
+-      <div className="page-content mx-auto max-w-md px-4 py-4">
++      <div className="page-content mx-auto max-w-md px-4 py-4 pb-24">
+         {/* Error Message */}
+         {error && (
+           <div className="mb-4 bg-red-900/30 border border-red-700 rounded-xl p-4 flex items-start gap-3">
+diff --git a/app/pages/food.js b/app/pages/food.js
+index 0949de1..cfb1ade 100644
+--- a/app/pages/food.js
++++ b/app/pages/food.js
+@@ -349,7 +349,7 @@ export default function FoodPage() {
+         </div>
+       </header>
+ 
+-      <main className="page-content mx-auto w-full max-w-md px-4 pb-36 pt-3">
++      <main className="page-content mx-auto w-full max-w-md px-4 pb-24 pt-3">
+         <div className="sticky top-0 z-20 -mx-4 border-b border-gray-800 bg-gray-900 px-4 pb-3">
+           <div className="grid grid-cols-4 gap-2">
+             {MEAL_TYPES.map((meal) => (
+diff --git a/app/pages/index.js b/app/pages/index.js
+index 35e139d..89971fb 100644
+--- a/app/pages/index.js
++++ b/app/pages/index.js
+@@ -107,24 +107,24 @@ function StatRow({ icon, label, value, color }) {
+ function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
+   const remaining = goal - consumed + exerciseCalories
+   const percent = Math.min((consumed / goal) * 100, 100)
+-  const radius = 70
++  const radius = 54
+   const circumference = 2 * Math.PI * radius
+   const offset = circumference - (percent / 100) * circumference
+   const isOver = remaining < 0
+ 
+   return (
+-    <div className="bg-gray-800 rounded-2xl p-5 mx-4 mt-3">
+-      <div className="flex items-center gap-6">
++    <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
++      <div className="flex items-center gap-5">
+         <div className="relative flex-shrink-0">
+-          <svg width="160" height="160" className="-rotate-90">
+-            <circle cx="80" cy="80" r={radius} fill="none" stroke="#374151" strokeWidth="12" />
++          <svg width="128" height="128" className="-rotate-90">
++            <circle cx="64" cy="64" r={radius} fill="none" stroke="#374151" strokeWidth="10" />
+             <circle
+-              cx="80"
+-              cy="80"
++              cx="64"
++              cy="64"
+               r={radius}
+               fill="none"
+               stroke={isOver ? '#ef4444' : '#06b6d4'}
+-              strokeWidth="12"
++              strokeWidth="10"
+               strokeLinecap="round"
+               strokeDasharray={circumference}
+               strokeDashoffset={offset}
+@@ -132,10 +132,10 @@ function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
+             />
+           </svg>
+           <div className="absolute inset-0 flex flex-col items-center justify-center">
+-            <span className={`text-3xl font-bold ${isOver ? 'text-red-400' : 'text-white'}`}>
++            <span className={`text-2xl font-bold ${isOver ? 'text-red-400' : 'text-white'}`}>
+               {Math.abs(remaining)}
+             </span>
+-            <span className="text-xs text-gray-400">{isOver ? 'over' : 'remaining'}</span>
++            <span className="text-[10px] text-gray-400">{isOver ? 'over' : 'remaining'}</span>
+           </div>
+         </div>
+ 
+@@ -661,7 +661,7 @@ export default function LandingDashboard({ user }) {
+ 
+   return (
+     <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
+-      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900">
++      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900 border-b border-gray-800">
+         <div>
+           <h1 className="text-xl font-bold text-white">Today</h1>
+           <p className="text-xs text-gray-400">{formatDate()}</p>
+@@ -671,7 +671,7 @@ export default function LandingDashboard({ user }) {
+         </Link>
+       </header>
+ 
+-      <main className="flex-1 overflow-y-auto pb-20">
++      <main className="page-content pb-24">
+         <div className="px-4 pt-3">
+           <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4">
+             <div className="flex items-center justify-between gap-4">
+diff --git a/app/pages/log-dose.js b/app/pages/log-dose.js
+index 67da509..1d64f14 100644
+--- a/app/pages/log-dose.js
++++ b/app/pages/log-dose.js
+@@ -292,7 +292,7 @@ export default function LogDose() {
+       </header>
+ 
+       {/* Main Content */}
+-      <main className="page-content mx-auto max-w-md px-4 py-4">
++      <main className="page-content mx-auto max-w-md px-4 py-4 pb-24">
+         {/* Error Banner */}
+         {error && (
+           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
+diff --git a/app/pages/meals.js b/app/pages/meals.js
+index 8df50c8..8b42a1d 100644
+--- a/app/pages/meals.js
++++ b/app/pages/meals.js
+@@ -572,7 +572,7 @@ export default function Meals({ user }) {
+         </div>
+       </div>
+ 
+-      <main className="flex-1 overflow-y-auto pb-40">
++      <main className="page-content pb-24">
+       <div className="mx-auto max-w-md px-4">
+         {/* Summary Bar */}
+         <div className="mt-4 bg-gray-800/50 rounded-2xl p-4 border border-gray-700">
+diff --git a/app/pages/peptides.js b/app/pages/peptides.js
+index 2f6b31f..0268ee4 100644
+--- a/app/pages/peptides.js
++++ b/app/pages/peptides.js
+@@ -80,7 +80,7 @@ export default function PeptidesPage() {
+         </div>
+       </header>
+ 
+-      <main className="page-content mx-auto w-full max-w-md px-4 py-4">
++      <main className="page-content mx-auto w-full max-w-md px-4 py-4 pb-24">
+         {error && (
+           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
+             {error}
+diff --git a/app/pages/peptides/[id].js b/app/pages/peptides/[id].js
+index fcbbe59..86199ef 100644
+--- a/app/pages/peptides/[id].js
++++ b/app/pages/peptides/[id].js
+@@ -94,7 +94,7 @@ export default function PeptideDetailPage() {
+         </div>
+       </header>
+ 
+-      <main className="page-content mx-auto max-w-md px-4 py-6 space-y-6">
++      <main className="page-content mx-auto max-w-md px-4 py-6 pb-24 space-y-6">
+         {/* Peptide Information */}
+         <div className="card">
+           <div className="flex items-start">
+diff --git a/app/styles/globals.css b/app/styles/globals.css
+index 3ddad1b..b1c90a5 100644
+--- a/app/styles/globals.css
++++ b/app/styles/globals.css
+@@ -2,75 +2,38 @@
+ @tailwind components;
+ @tailwind utilities;
+ 
+-/* Custom mobile-first styles */
++/* ── Base layer ──────────────────────────────────────────────
++   NOTE: mobile.css handles html/body height, overflow, and font-size.
++   This file only sets Tailwind base overrides and component classes.
++*/
+ @layer base {
+   html {
+-    font-family: system-ui, sans-serif;
+-  }
+-  
+-  body {
+-    @apply bg-gray-50 text-gray-900;
++    font-family: system-ui, -apple-system, sans-serif;
+   }
+ 
+-  input,
+-  select,
+-  textarea {
+-    font-size: 16px;
++  /* Dark theme by default — matches all page backgrounds */
++  body {
++    @apply bg-gray-900 text-white;
+   }
+ }
+ 
+ @layer components {
+   /* Mobile-first button styles */
+   .btn-primary {
+-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200 w-full text-center;
++    @apply bg-cyan-500 hover:bg-cyan-400 text-black font-semibold py-3 px-6 rounded-xl transition-colors duration-200 w-full text-center;
+   }
+-  
++
+   .btn-secondary {
+-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-3 px-6 rounded-lg transition-colors duration-200 w-full text-center;
++    @apply bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-3 px-6 rounded-xl transition-colors duration-200 w-full text-center;
+   }
+-  
++
+   /* Mobile-optimized form inputs */
+   .input-field {
+-    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-base;
++    @apply w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none text-base;
+   }
+-  
++
+   /* Mobile card components */
+   .card {
+-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-4;
+-  }
+-  
+-  /* Mobile navigation */
+-  .nav-item {
+-    @apply flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-100 transition-colors duration-200;
++    @apply bg-gray-800 rounded-2xl border border-gray-700 p-4;
+   }
+ }
+-
+-/* PWA and mobile optimizations */
+-@media (max-width: 768px) {
+-  /* Ensure touch targets are at least 44px */
+-  button, a, input, select {
+-    min-height: 44px;
+-  }
+-  
+-  /* Optimize text sizes for mobile */
+-  .text-mobile-lg {
+-    font-size: 1.125rem;
+-    line-height: 1.5;
+-  }
+-}
+-
+-/* Android Chrome viewport fix */
+-html, body, #__next {
+-  height: 100%;
+-}
+-
+-body {
+-  overscroll-behavior: none;
+-  -webkit-text-size-adjust: 100%;
+-  text-size-adjust: 100%;
+-}
+-
+-/* Prevent Android Chrome auto-zoom on input focus */
+-input, select, textarea {
+-  font-size: 16px !important;
+-}
+diff --git a/app/styles/mobile.css b/app/styles/mobile.css
+index 2095dd3..a5794df 100644
+--- a/app/styles/mobile.css
++++ b/app/styles/mobile.css
+@@ -1,55 +1,88 @@
+-/* Dynamic viewport height - fixes Android Chrome address bar issue */
+-:root {
+-  --app-height: 100dvh;
++/* ═══════════════════════════════════════════════════════════════
++   PeptiFit Mobile — single source of truth for mobile layout
++   ═══════════════════════════════════════════════════════════════ */
++
++/* ── Viewport shell ───────────────────────────────────────────
++   Each page is a flex column that fills the screen:
++     header (flex-shrink-0)  →  main.page-content (flex-1, scrolls)  →  BottomNav (fixed)
++   We lock overflow on html/body/#__next so only .page-content scrolls.
++*/
++html {
++  font-size: 16px;
++  -webkit-text-size-adjust: 100%;
++  text-size-adjust: 100%;
+ }
+ 
+-html,
+-body {
++html, body {
+   height: 100%;
+   overflow: hidden;
+   overscroll-behavior: none;
+-  -webkit-text-size-adjust: 100%;
+-  text-size-adjust: 100%;
+ }
+ 
+-/* Ensure the Next.js root fills viewport */
+ #__next {
+   height: 100dvh;
+-  height: 100vh;
++  height: 100vh; /* fallback for older browsers */
+   display: flex;
+   flex-direction: column;
+   overflow: hidden;
+ }
+ 
+-/* Base font size bump for readability */
+-html {
+-  font-size: 16px;
++/* ── Scrollable content area ─────────────────────────────────
++   Every page's <main> should have class="page-content".
++   This is the ONLY element that scrolls on the page.
++*/
++.page-content {
++  flex: 1 1 0%;
++  overflow-y: auto;
++  overflow-x: hidden;
++  -webkit-overflow-scrolling: touch;
++  overscroll-behavior-y: contain;
+ }
+ 
+-/* Minimum tap target size */
++/* ── Tap targets ─────────────────────────────────────────────
++   Only apply 44px minimum to primary interactive elements.
++   Use a class for inline/small buttons that need to opt out.
++*/
+ button,
+-a,
+-[role="button"] {
++[role="button"],
++input[type="submit"],
++input[type="button"] {
++  min-height: 44px;
++}
++
++/* Links only get the tap target when they're standalone nav/action items.
++   Inline text links (inside paragraphs, badges, etc.) should NOT be 44px. */
++a:not(.inline-link):not([class*="text-xs"]):not([class*="text-\[10px\]"]):not([class*="rounded-full"]) {
+   min-height: 44px;
+-  min-width: 44px;
+ }
+ 
++/* Opt-out class for small inline buttons (sort toggles, badge buttons, etc.) */
++.btn-compact,
++.btn-compact a,
++.btn-compact button {
++  min-height: unset !important;
++  min-width: unset !important;
++}
++
++/* Prevent iOS zoom on input focus */
+ input,
+ select,
+ textarea {
+-  font-size: 16px;
++  font-size: 16px !important;
+ }
+ 
+-/* Safe area for bottom nav on Android */
++/* ── Bottom nav safe area ────────────────────────────────────
++   The BottomNav component handles its own safe-area via inline style,
++   but this class is available as a fallback.
++*/
+ .bottom-nav {
+   padding-bottom: max(12px, env(safe-area-inset-bottom));
+ }
+ 
+-/* Scrollable content area between fixed header and fixed nav */
+-.page-content {
+-  flex: 1;
+-  overflow-y: auto;
+-  overflow-x: hidden;
+-  -webkit-overflow-scrolling: touch;
+-  overscroll-behavior-y: contain;
++/* ── Standard bottom padding for page-content ────────────────
++   BottomNav is ~72px (56px content + 16px safe area).
++   Add this as default so no content is hidden behind the nav.
++*/
++.pb-nav {
++  padding-bottom: 5rem; /* 80px — safe clearance for bottom nav */
+ }
+-- 
+2.43.0
+

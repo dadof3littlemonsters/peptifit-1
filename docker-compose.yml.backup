@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Next.js Frontend Application
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: peptifit_app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:3001
+    depends_on:
+      - backend
+    networks:
+      - peptifit_network
+
+  # Node.js Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: peptifit_backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=file:./database.sqlite
+    volumes:
+      - ./data:/app/data
+    networks:
+      - peptifit_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: peptifit_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+      - backend
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - peptifit_network
+
+networks:
+  peptifit_network:
+    driver: bridge
+
+volumes:
+  data:

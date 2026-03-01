@@ -572,7 +572,7 @@ export default function Meals({ user }) {
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto pb-40">
+      <main className="page-content pb-24">
       <div className="mx-auto max-w-md px-4">
         {/* Summary Bar */}
         <div className="mt-4 bg-gray-800/50 rounded-2xl p-4 border border-gray-700">

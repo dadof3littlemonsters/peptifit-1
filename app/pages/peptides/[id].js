@@ -94,7 +94,7 @@ export default function PeptideDetailPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto max-w-md px-4 py-6 space-y-6">
+      <main className="page-content mx-auto max-w-md px-4 py-6 pb-24 space-y-6">
         {/* Peptide Information */}
         <div className="card">
           <div className="flex items-start">

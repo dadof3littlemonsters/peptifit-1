@@ -80,7 +80,7 @@ export default function PeptidesPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-md px-4 py-4">
+      <main className="page-content mx-auto w-full max-w-md px-4 py-4 pb-24">
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
             {error}

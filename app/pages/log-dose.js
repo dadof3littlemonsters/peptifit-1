@@ -292,7 +292,7 @@ export default function LogDose() {
       </header>
 
       {/* Main Content */}
-      <main className="page-content mx-auto max-w-md px-4 py-4">
+      <main className="page-content mx-auto max-w-md px-4 py-4 pb-24">
         {/* Error Banner */}
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">

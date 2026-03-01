@@ -799,7 +799,7 @@ export default function PeptideConfigurationWizard() {
         </div>
       </header>
 
-      <div className="page-content mx-auto max-w-md px-4 py-4">
+      <div className="page-content mx-auto max-w-md px-4 py-4 pb-24">
         {/* Error Message */}
         {error && (
           <div className="mb-4 bg-red-900/30 border border-red-700 rounded-xl p-4 flex items-start gap-3">
