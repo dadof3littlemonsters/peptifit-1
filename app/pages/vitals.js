@@ -428,7 +428,7 @@ export default function VitalsPage() {
                       setChartType(type)
                       loadChartData(type, timeRange)
                     }}
-                    className={`bg-gray-800 rounded-xl p-4 border transition-all cursor-pointer ${
+                    className={`bg-gray-800 rounded-xl p-3 border transition-all cursor-pointer ${
                       chartType === type 
                         ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
                         : 'border-gray-700 hover:border-gray-600'
@@ -479,7 +479,7 @@ export default function VitalsPage() {
           </div>
 
           {/* Trend Chart */}
-          <div className="bg-gray-800 rounded-2xl p-5 border border-gray-700">
+          <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">
@@ -507,7 +507,7 @@ export default function VitalsPage() {
             </div>
             
             {chartData.length > 0 && isClient ? (
-              <div className="h-64">
+              <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -536,9 +536,9 @@ export default function VitalsPage() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-64 flex items-center justify-center text-gray-500">
+              <div className="h-32 flex items-center justify-center text-gray-500">
                 <div className="text-center">
-                  <ChartBarIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <ChartBarIcon className="w-10 h-10 mx-auto mb-2 opacity-50" />
                   <p>{isClient ? 'No data for selected period' : 'Loading chart...'}</p>
                 </div>
               </div>
@@ -558,9 +558,9 @@ export default function VitalsPage() {
                       setSelectedType(type)
                       setActiveView('log')
                     }}
-                    className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 flex flex-col items-center gap-2 transition-colors"
+                    className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-2.5 flex flex-col items-center gap-1.5 transition-colors"
                   >
-                    <Icon className="w-6 h-6" style={{ color: config.color }} />
+                    <Icon className="w-5 h-5" style={{ color: config.color }} />
                     <span className="text-xs text-gray-400">{config.label}</span>
                   </button>
                 )
@@ -708,7 +708,7 @@ export default function VitalsPage() {
         {activeView === 'history' && (
           <div className="mt-6 space-y-4">
           {/* Filters */}
-          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <div className="bg-gray-800 rounded-xl p-3 border border-gray-700">
             <div className="flex items-center gap-2 mb-3">
               <FunnelIcon className="w-5 h-5 text-cyan-400" />
               <span className="font-medium text-white">Filters</span>
@@ -777,7 +777,7 @@ export default function VitalsPage() {
                 return (
                   <div
                     key={vital.id}
-                    className="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center gap-4"
+                    className="bg-gray-800 rounded-xl p-3 border border-gray-700 flex items-center gap-4"
                   >
                     <div 
                       className="p-2 rounded-lg flex-shrink-0"
@@ -823,7 +823,7 @@ export default function VitalsPage() {
       {/* Floating Quick Add Button */}
       <button
         onClick={() => setActiveView('log')}
-        className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-500 text-black shadow-lg shadow-cyan-500/30 transition-colors hover:bg-cyan-400"
+        className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-500 text-black shadow-lg shadow-cyan-500/30 transition-colors hover:bg-cyan-400"
       >
         <PlusIcon className="w-7 h-7" />
       </button>

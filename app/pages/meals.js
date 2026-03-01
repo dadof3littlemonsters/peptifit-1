@@ -552,27 +552,27 @@ export default function Meals({ user }) {
         </div>
       </header>
 
-      <div className="sticky top-14 z-20 border-b border-gray-800 bg-gray-900 px-4 py-3">
+      <div className="sticky top-14 z-20 border-b border-gray-800 bg-gray-900 px-4 py-2">
         <div className="mx-auto grid max-w-lg grid-cols-4 gap-2">
           {MEAL_TYPES.map((type) => (
             <button
               key={type.id}
               type="button"
               onClick={() => setSelectedMealType(type.id)}
-              className={`min-h-[48px] rounded-xl px-2 py-2 text-sm font-medium transition-colors ${
+              className={`min-h-[40px] rounded-xl px-2 py-1.5 text-sm font-medium transition-colors ${
                 selectedMealType === type.id
                   ? 'bg-cyan-500 text-black'
                   : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
               }`}
             >
-              <span className="block text-lg mb-0.5">{type.icon}</span>
+              <span className="block text-base mb-0.5">{type.icon}</span>
               <span className="text-xs">{type.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <main className="page-content pb-24">
+      <main className="page-content pb-40">
       <div className="mx-auto max-w-md px-4">
         {/* Summary Bar */}
         <div className="mt-4 bg-gray-800/50 rounded-2xl p-4 border border-gray-700">
@@ -744,7 +744,7 @@ export default function Meals({ user }) {
       </div>
       </main>
 
-      <div className="fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-0 right-0 z-40 border-t border-gray-800 bg-gray-900/95 p-2 backdrop-blur-sm">
+      <div className="fixed bottom-[calc(60px+env(safe-area-inset-bottom))] left-0 right-0 z-40 border-t border-gray-800 bg-gray-900/95 p-2 backdrop-blur-sm">
         <div className="mx-auto flex max-w-lg gap-2">
           <button
             onClick={openSearch}
@@ -957,7 +957,7 @@ export default function Meals({ user }) {
                           : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                       }`}
                     >
-                      <span className="block text-lg mb-0.5">{type.icon}</span>
+                      <span className="block text-base mb-0.5">{type.icon}</span>
                       <span className="text-xs">{type.label}</span>
                     </button>
                   ))}
