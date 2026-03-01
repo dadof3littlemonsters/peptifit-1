@@ -1080,7 +1080,7 @@ export default function Meals({ user }) {
         </div>
       )}
 
-      <BottomNav active="diary" />
+      <BottomNav active="meals" />
     </div>
   )
 }

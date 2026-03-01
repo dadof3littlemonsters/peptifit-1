@@ -828,7 +828,7 @@ export default function VitalsPage() {
         <PlusIcon className="w-7 h-7" />
       </button>
 
-      <BottomNav active="more" />
+      <BottomNav active="vitals" />
     </div>
   )
 }

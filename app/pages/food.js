@@ -603,7 +603,7 @@ export default function FoodPage() {
         </div>
       )}
 
-      <BottomNav active="diary" />
+      <BottomNav active="meals" />
     </div>
   );
 }

@@ -1,14 +1,98 @@
 import { useState, useEffect, useMemo } from 'react'
-import { doses, peptides, vitals, meals, food } from '../lib/api'
+import { doses, peptides, vitals, meals, food, bloodResults } from '../lib/api'
 import Link from 'next/link'
 import BottomNav from '../components/BottomNav'
 import {
+  ChevronDownIcon,
+  HeartIcon,
   XMarkIcon,
   PlusIcon
 } from '@heroicons/react/24/outline'
 
 // Default calorie goal
 const DEFAULT_CALORIE_GOAL = 2500
+
+const DASHBOARD_STATUS_COLORS = {
+  normal: 'bg-green-500/20 text-green-400',
+  optimal: 'bg-green-500/20 text-green-400',
+  borderline: 'bg-yellow-500/20 text-yellow-400',
+  high: 'bg-orange-500/20 text-orange-400',
+  low: 'bg-orange-500/20 text-orange-400',
+  critical: 'bg-red-500/20 text-red-400'
+}
+
+function DashboardRangeBar({ value, low, high, max }) {
+  const min = 0
+  const safeMax = max || Math.max(Number(high) * 1.4 || 0, Number(value) * 1.2 || 0, 100)
+  const toPct = (input) => Math.max(0, Math.min(100, ((Number(input) - min) / (safeMax - min || 1)) * 100))
+  const lowPct = toPct(low)
+  const highPct = toPct(high)
+  const valuePct = toPct(value)
+
+  return (
+    <div className="relative pt-1">
+      <div className="h-2 overflow-hidden rounded-full bg-gray-700">
+        <div className="flex h-full">
+          <div className="bg-red-500/60" style={{ width: `${lowPct}%` }} />
+          <div className="bg-green-500/70" style={{ width: `${Math.max(highPct - lowPct, 4)}%` }} />
+          <div className="flex-1 bg-red-500/60" />
+        </div>
+      </div>
+      <div
+        className="absolute top-1.5 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-gray-900 bg-white shadow-lg"
+        style={{ left: `${valuePct}%` }}
+      />
+    </div>
+  )
+}
+
+function BiomarkerGroup({ title, markers, open, onToggle }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-700 bg-gray-800">
+      <button onClick={onToggle} className="flex w-full items-center justify-between p-4 text-left">
+        <div className="flex items-center gap-2">
+          <ChevronDownIcon className={`h-4 w-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <span className="font-semibold text-white">{title}</span>
+        </div>
+        <span className="text-sm text-gray-500">{markers.length} tracked</span>
+      </button>
+
+      {open && (
+        <div className="space-y-3 px-4 pb-4">
+          {markers.map((marker) => {
+            const statusClass = DASHBOARD_STATUS_COLORS[marker.status] || DASHBOARD_STATUS_COLORS.normal
+
+            return (
+              <div key={`${title}-${marker.name}`} className="rounded-xl bg-gray-700/50 p-3">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <span className="font-medium text-white">{marker.name}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${statusClass}`}>
+                    {marker.status || 'normal'}
+                  </span>
+                </div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-lg font-bold text-cyan-400">
+                    {marker.value}{' '}
+                    <span className="text-sm font-normal text-gray-400">{marker.unit}</span>
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {marker.reference_range_low} - {marker.reference_range_high}
+                  </span>
+                </div>
+                <DashboardRangeBar
+                  value={marker.value}
+                  low={marker.reference_range_low}
+                  high={marker.reference_range_high}
+                  max={Math.max(Number(marker.reference_range_high) * 1.4 || 0, Number(marker.value) * 1.2 || 0, 100)}
+                />
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function StatRow({ icon, label, value, color }) {
   return (
@@ -150,6 +234,8 @@ export default function LandingDashboard({ user }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedDayFood, setSelectedDayFood] = useState({ logs: [], totals: null })
   const [selectedDayFoodLoading, setSelectedDayFoodLoading] = useState(false)
+  const [latestBloodResult, setLatestBloodResult] = useState(null)
+  const [openBiomarkerGroups, setOpenBiomarkerGroups] = useState(['Hormones'])
 
   // Calories card state
   const [todayMeals, setTodayMeals] = useState([])
@@ -226,6 +312,26 @@ export default function LandingDashboard({ user }) {
     })
   }, [userStack, recentDoses])
 
+  const biomarkerGroups = useMemo(() => {
+    const markers = latestBloodResult?.markers || []
+    return markers.reduce((groups, marker) => {
+      let category = 'Other'
+      const normalizedName = marker.name?.toLowerCase() || ''
+
+      if (normalizedName.includes('testosterone') || normalizedName.includes('estradiol') || normalizedName.includes('shbg')) {
+        category = 'Hormones'
+      } else if (normalizedName.includes('cholesterol') || normalizedName.includes('triglycerides')) {
+        category = 'Lipids'
+      } else if (normalizedName.includes('glucose') || normalizedName.includes('a1c')) {
+        category = 'Metabolic'
+      }
+
+      if (!groups[category]) groups[category] = []
+      groups[category].push(marker)
+      return groups
+    }, {})
+  }, [latestBloodResult])
+
   const calorieProgress = Math.min((todayCalories / calorieGoal) * 100, 100)
   const remainingCalories = calorieGoal - todayCalories
 
@@ -274,13 +380,15 @@ export default function LandingDashboard({ user }) {
 
   const loadDashboardData = async () => {
     try {
-      const [dosesData, peptidesData, vitalsLatest] = await Promise.all([
+      const [dosesData, peptidesData, vitalsLatest, bloodPanels] = await Promise.all([
         doses.getAll(),
         peptides.getAll(),
-        vitals.getLatest().catch(() => null)
+        vitals.getLatest().catch(() => null),
+        bloodResults.getAll().catch(() => [])
       ])
       setRecentDoses(dosesData)
       setAvailablePeptides(peptidesData)
+      setLatestBloodResult(Array.isArray(bloodPanels) && bloodPanels.length > 0 ? bloodPanels[0] : null)
 
       // Load vitals data for dashboard preview
       if (vitalsLatest) {
@@ -558,12 +666,31 @@ export default function LandingDashboard({ user }) {
           <h1 className="text-xl font-bold text-white">Today</h1>
           <p className="text-xs text-gray-400">{formatDate()}</p>
         </div>
-        <button type="button" className="text-gray-400 text-sm bg-gray-800 px-3 py-1.5 rounded-lg min-h-[36px]">
+        <Link href="/settings" className="text-gray-400 text-sm bg-gray-800 px-3 py-1.5 rounded-lg min-h-[36px] flex items-center">
           Edit
-        </button>
+        </Link>
       </header>
 
       <main className="flex-1 overflow-y-auto pb-20">
+        <div className="px-4 pt-3">
+          <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-cyan-500/20 p-2">
+                  <HeartIcon className="h-6 w-6 text-cyan-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Health Dashboard</h2>
+                  <p className="text-sm text-gray-400">Your health at a glance</p>
+                </div>
+              </div>
+              <Link href="/blood-results" className="text-xs font-medium text-cyan-400">
+                Panels →
+              </Link>
+            </div>
+          </div>
+        </div>
+
         <CalorieRing consumed={todayCalories} goal={calorieGoal} />
         <MacroBar
           protein={todayMacros.protein}
@@ -571,6 +698,46 @@ export default function LandingDashboard({ user }) {
           fat={todayMacros.fat}
         />
         <PeptideDoseCard userStack={userStack} recentDoses={recentDoses} />
+
+        <div className="mt-4 px-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <div>
+                <h3 className="text-base font-semibold text-white">Biomarker Summary</h3>
+                <p className="text-xs text-gray-400">
+                  {latestBloodResult
+                    ? `Latest panel from ${new Date(latestBloodResult.test_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+                    : 'Add a blood panel to populate this section'}
+                </p>
+              </div>
+              <Link href="/blood-results" className="text-xs text-cyan-400">
+                Open →
+              </Link>
+            </div>
+
+            {!latestBloodResult ? (
+              <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 text-sm text-gray-400">
+                No blood panels yet. Use Blood Results to log a panel manually or upload a PDF.
+              </div>
+            ) : (
+              Object.entries(biomarkerGroups).map(([groupName, markers]) => (
+                <BiomarkerGroup
+                  key={groupName}
+                  title={groupName}
+                  markers={markers}
+                  open={openBiomarkerGroups.includes(groupName)}
+                  onToggle={() =>
+                    setOpenBiomarkerGroups((current) =>
+                      current.includes(groupName)
+                        ? current.filter((item) => item !== groupName)
+                        : [...current, groupName]
+                    )
+                  }
+                />
+              ))
+            )}
+          </div>
+        </div>
 
         <div className="mt-4 px-4 pb-4">
           <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">

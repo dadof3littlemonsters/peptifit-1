@@ -2,9 +2,12 @@ import Link from 'next/link'
 import BottomNav from '../components/BottomNav'
 
 const MORE_ITEMS = [
-  { href: '/vitals', icon: '📊', label: 'Vitals' },
+  { href: '/peptides', icon: '🧬', label: 'Peptide Library' },
   { href: '/supplements', icon: '💊', label: 'Supplements' },
   { href: '/blood-results', icon: '🧪', label: 'Blood Results' },
+  { href: '/logs', icon: '📋', label: 'Protocol Logs' },
+  { href: '/chat', icon: '💬', label: 'AI Coach' },
+  { href: '/profile', icon: '👤', label: 'Profile' },
   { href: '/settings', icon: '⚙️', label: 'Settings' }
 ]
 
