@@ -1,83 +1,141 @@
 import { useState, useEffect, useMemo } from 'react'
-import { auth, doses, peptides, vitals, meals } from '../lib/api'
+import { doses, peptides, vitals, meals, food } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import {
-  UserIcon,
   XMarkIcon,
-  CogIcon,
-  FireIcon,
-  PlusIcon,
-  ChevronRightIcon
+  PlusIcon
 } from '@heroicons/react/24/outline'
 
 // Default calorie goal
 const DEFAULT_CALORIE_GOAL = 2500
 
-// Reusable compact section card component
-function SectionCard({
-  icon,
-  title,
-  subtitle,
-  stats,
-  ctaText,
-  href,
-  onClick,
-  comingSoon = false,
-  className = '',
-  children
-}) {
-  const CardWrapper = href ? Link : 'div'
-  const wrapperProps = href ? { href } : { onClick }
+function StatRow({ icon, label, value, color }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-lg w-6 text-center">{icon}</span>
+      <span className="text-gray-400 text-sm flex-1">{label}</span>
+      <span className={`font-bold text-base ${color}`}>{value}</span>
+    </div>
+  )
+}
+
+function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
+  const remaining = goal - consumed + exerciseCalories
+  const percent = Math.min((consumed / goal) * 100, 100)
+  const radius = 70
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (percent / 100) * circumference
+  const isOver = remaining < 0
 
   return (
-    <CardWrapper
-      {...wrapperProps}
-      className={`
-        block bg-gray-800 rounded-xl p-4 border border-gray-700
-        ${!comingSoon ? 'hover:border-gray-600 hover:bg-gray-750 cursor-pointer' : 'opacity-50 cursor-default'}
-        transition-all
-        ${className}
-      `}
-    >
-      {/* Header row: icon + title/subtitle */}
-      <div className="flex items-center gap-3 mb-3">
-        <div className="text-2xl flex-shrink-0">{icon}</div>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-white truncate">
-            {title}
-            {comingSoon && <span className="text-xs text-gray-500 font-normal ml-1.5">Soon</span>}
-          </h3>
-          <p className="text-gray-400 text-xs truncate">{subtitle}</p>
+    <div className="bg-gray-800 rounded-2xl p-5 mx-4 mt-3">
+      <div className="flex items-center gap-6">
+        <div className="relative flex-shrink-0">
+          <svg width="160" height="160" className="-rotate-90">
+            <circle cx="80" cy="80" r={radius} fill="none" stroke="#374151" strokeWidth="12" />
+            <circle
+              cx="80"
+              cy="80"
+              r={radius}
+              fill="none"
+              stroke={isOver ? '#ef4444' : '#06b6d4'}
+              strokeWidth="12"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`text-3xl font-bold ${isOver ? 'text-red-400' : 'text-white'}`}>
+              {Math.abs(remaining)}
+            </span>
+            <span className="text-xs text-gray-400">{isOver ? 'over' : 'remaining'}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 flex-1">
+          <StatRow icon="🎯" label="Goal" value={goal} color="text-gray-300" />
+          <StatRow icon="🍽️" label="Food" value={consumed} color="text-cyan-400" />
+          <StatRow icon="🔥" label="Exercise" value={exerciseCalories} color="text-orange-400" />
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Optional custom content (e.g., progress bar) */}
-      {children}
+function MacroBar({ protein, carbs, fat }) {
+  const targets = { protein: 150, carbs: 250, fat: 65 }
 
-      {/* Stats row - grid for even distribution */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        {stats.map((stat, i) => (
-          <div key={i} className="min-w-0">
-            <div className={`text-sm font-semibold ${stat.color || 'text-white'} truncate`}>
-              {stat.value}
+  const bars = [
+    { label: 'Protein', value: protein, target: targets.protein, color: '#06b6d4' },
+    { label: 'Carbs', value: carbs, target: targets.carbs, color: '#a78bfa' },
+    { label: 'Fat', value: fat, target: targets.fat, color: '#f59e0b' }
+  ]
+
+  return (
+    <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
+      <div className="flex gap-4">
+        {bars.map(({ label, value, target, color }) => {
+          const pct = Math.min((value / target) * 100, 100)
+
+          return (
+            <div key={label} className="flex-1">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">{label}</span>
+                <span className="text-white font-medium">{Math.round(value)}g</span>
+              </div>
+              <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, backgroundColor: color }}
+                />
+              </div>
+              <div className="text-xs text-gray-500 mt-1 text-right">{target}g</div>
             </div>
-            <div className="text-gray-500 text-xs truncate">{stat.label}</div>
-          </div>
-        ))}
+          )
+        })}
       </div>
+    </div>
+  )
+}
 
-      {/* CTA row */}
-      <div className={`
-        flex items-center justify-between py-2 px-3 rounded-lg text-sm
-        ${comingSoon
-          ? 'bg-gray-700/30 text-gray-500'
-          : 'bg-gray-700/50 text-cyan-400'
-        }
-      `}>
-        <span className="font-medium truncate">{ctaText}</span>
-        <ChevronRightIcon className="h-4 w-4 flex-shrink-0" />
+function PeptideDoseCard({ userStack, recentDoses }) {
+  if (!userStack || userStack.length === 0) return null
+
+  const today = new Date().toDateString()
+  const todayDoses = recentDoses.filter((dose) =>
+    new Date(dose.administration_time).toDateString() === today
+  )
+
+  return (
+    <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-white font-semibold text-sm">Peptides Today</span>
+        <Link href="/peptides" className="text-cyan-400 text-xs">View all →</Link>
       </div>
-    </CardWrapper>
+      <div className="flex flex-wrap gap-2">
+        {userStack.map((item) => {
+          const dosed = todayDoses.some((dose) => dose.peptide_id === item.peptide_id)
+          const label = item.peptide_name || item.peptide?.name || item.peptide_id
+
+          return (
+            <div
+              key={item.peptide_id}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+                dosed
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-gray-700 text-gray-400 border border-gray-600'
+              }`}
+            >
+              <span>{dosed ? '✓' : '○'}</span>
+              <span>{label}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -90,6 +148,8 @@ export default function LandingDashboard({ user }) {
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [selectedDayFood, setSelectedDayFood] = useState({ logs: [], totals: null })
+  const [selectedDayFoodLoading, setSelectedDayFoodLoading] = useState(false)
 
   // Calories card state
   const [todayMeals, setTodayMeals] = useState([])
@@ -147,6 +207,12 @@ export default function LandingDashboard({ user }) {
   const todayCalories = useMemo(() => {
     return todayMeals.reduce((acc, meal) => acc + (parseInt(meal.calories) || 0), 0)
   }, [todayMeals])
+
+  const todayMacros = useMemo(() => ({
+    protein: todayMeals.reduce((a, m) => a + (parseFloat(m.protein) || 0), 0),
+    carbs: todayMeals.reduce((a, m) => a + (parseFloat(m.carbs) || 0), 0),
+    fat: todayMeals.reduce((a, m) => a + (parseFloat(m.fat) || 0), 0)
+  }), [todayMeals])
 
   // Calculate which stack items are still due today (no dose logged today).
   // Must be here — above the `if (loading) return` — so hook count is constant
@@ -406,12 +472,32 @@ export default function LandingDashboard({ user }) {
   const handleDayClick = (day) => {
     setSelectedDay(day)
     setModalOpen(true)
+    loadDayFood(day.date)
+  }
+
+  const loadDayFood = async (date) => {
+    try {
+      setSelectedDayFoodLoading(true)
+      const dateKey = date.toISOString().split('T')[0]
+      const response = await food.getLogs(dateKey)
+      setSelectedDayFood({
+        logs: response.logs || [],
+        totals: response.totals || { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 }
+      })
+    } catch (err) {
+      console.error('Error loading day food logs:', err)
+      setSelectedDayFood({ logs: [], totals: null })
+    } finally {
+      setSelectedDayFoodLoading(false)
+    }
   }
 
   // Close modal
   const closeModal = () => {
     setModalOpen(false)
     setSelectedDay(null)
+    setSelectedDayFood({ logs: [], totals: null })
+    setSelectedDayFoodLoading(false)
   }
 
   // Format time for display
@@ -439,6 +525,20 @@ export default function LandingDashboard({ user }) {
     })
   }
 
+  const getFoodSummaryByMeal = (logs = []) => {
+    const summary = {}
+    logs.forEach((log) => {
+      if (!summary[log.meal_type]) {
+        summary[log.meal_type] = { count: 0, calories: 0 }
+      }
+
+      summary[log.meal_type].count += 1
+      summary[log.meal_type].calories += Number(log.calories) || 0
+    })
+
+    return summary
+  }
+
   // ── All hooks are above this line. No hooks may appear below. ──
   if (loading) {
     return (
@@ -451,45 +551,29 @@ export default function LandingDashboard({ user }) {
     )
   }
 
-  const stats = getWeeklyStats()
-  const nextDose = getNextDoseInfo()
-
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header className="bg-black border-b border-gray-800">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-white">PeptiFit</h1>
-              <p className="text-gray-500 text-xs">{formatDate()}</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-400 text-sm mr-2 hidden sm:inline">{user?.username}</span>
-              <Link
-                href="/settings"
-                className="p-2 text-cyan-400 hover:text-cyan-300 transition-colors"
-                title="Settings"
-              >
-                <CogIcon className="h-5 w-5" />
-              </Link>
-              <Link
-                href="/settings"
-                className="p-2 text-gray-400 hover:text-white transition-colors"
-                title="Settings"
-              >
-                <UserIcon className="h-5 w-5" />
-              </Link>
-            </div>
-          </div>
+    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
+      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900">
+        <div>
+          <h1 className="text-xl font-bold text-white">Today</h1>
+          <p className="text-xs text-gray-400">{formatDate()}</p>
         </div>
+        <button type="button" className="text-gray-400 text-sm bg-gray-800 px-3 py-1.5 rounded-lg min-h-[36px]">
+          Edit
+        </button>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 py-4">
-        {/* ===== HERO SECTION ===== */}
-        <div className="mb-6 space-y-4">
-          {/* This Week Calendar + Stats - Hero Widget */}
-          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+      <main className="flex-1 overflow-y-auto pb-20">
+        <CalorieRing consumed={todayCalories} goal={calorieGoal} />
+        <MacroBar
+          protein={todayMacros.protein}
+          carbs={todayMacros.carbs}
+          fat={todayMacros.fat}
+        />
+        <PeptideDoseCard userStack={userStack} recentDoses={recentDoses} />
+
+        <div className="mt-4 px-4 pb-4">
+          <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-white">This Week</h3>
               <span className="text-cyan-400 text-xs">
@@ -497,316 +581,46 @@ export default function LandingDashboard({ user }) {
               </span>
             </div>
 
-            {/* Weekly Calendar Row */}
-            <div className="grid grid-cols-7 gap-1.5 mb-3">
+            <div className="mb-3 grid grid-cols-7 gap-2">
               {getWeeklyCalendarData().map((day, index) => (
-                <div
+                <button
                   key={index}
+                  type="button"
                   onClick={() => handleDayClick(day)}
                   className={`
-                    aspect-square flex flex-col items-center justify-center text-xs font-medium rounded-lg cursor-pointer transition-colors
-                    ${day.isToday ? 'bg-cyan-500 text-black font-bold' : 'bg-gray-700/50 hover:bg-gray-600/50'}
+                    flex min-h-11 flex-col items-center justify-center rounded-lg text-xs font-medium transition-colors
+                    ${day.isToday ? 'bg-cyan-500 text-white font-bold' : 'bg-gray-700/50 hover:bg-gray-600/50'}
                     ${day.hasActivity && !day.isToday ? 'ring-1 ring-cyan-400/40' : ''}
                   `}
                 >
-                  <div className={`text-[10px] ${day.isToday ? 'text-black/60' : 'text-gray-500'}`}>
+                  <div className={`text-[10px] ${day.isToday ? 'text-white/70' : 'text-gray-500'}`}>
                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'][index]}
                   </div>
                   <div>{day.dayNumber}</div>
                   {day.hasActivity && (
                     <div className="flex gap-0.5 mt-0.5">
                       {day.doses.slice(0, 2).map((_, i) => (
-                        <div key={`dot-${i}`} className={`w-1 h-1 rounded-full ${day.isToday ? 'bg-black/50' : 'bg-cyan-400'}`} />
+                        <div key={`dot-${i}`} className={`h-1.5 w-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-cyan-400'}`} />
                       ))}
                     </div>
                   )}
-                </div>
+                </button>
               ))}
             </div>
-
-            {/* Inline Stats */}
-            <div className="flex items-center justify-around text-xs border-t border-gray-700 pt-3">
-              <div className="text-center">
-                <div className="text-cyan-400 font-semibold">{getWeeklyCalendarData().filter(d => d.hasActivity).length}</div>
-                <div className="text-gray-500">Active</div>
-              </div>
-              <div className="text-center">
-                <div className="text-green-400 font-semibold">{getWeeklyCalendarData().reduce((t, d) => t + d.doses.length, 0)}</div>
-                <div className="text-gray-500">Doses</div>
-              </div>
-              <div className="text-center">
-                <div className="text-orange-400 font-semibold">{userStack.length > 0 ? (localStorage.getItem('peptifit_adherence_goal') || '80') + '%' : '-'}</div>
-                <div className="text-gray-500">Adherence</div>
-              </div>
-            </div>
-          </div>
-
-
-          {/* Next Dose Alert */}
-          {nextDose && (
-            <Link
-              href="/log-dose"
-              className={`block rounded-xl p-3 transition-all ${
-                nextDose.isReady
-                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500'
-                  : 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-xl">⏰</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm">
-                    {nextDose.isReady ? `${nextDose.peptideName} dose ready!` : `${nextDose.peptideName} due in ${nextDose.timeUntil}`}
-                  </div>
-                  <div className="text-xs opacity-80">
-                    {nextDose.isReady ? 'Tap to log dose' : `Next dose • ${nextDose.doseAmount}${nextDose.doseUnit}`}
-                  </div>
-                </div>
-                <ChevronRightIcon className="h-5 w-5 flex-shrink-0" />
-              </div>
-            </Link>
-          )}
-
-          {/* Due Today (collapsible, only if peptides configured AND items are due) */}
-          {userStack.length > 0 && itemsDueToday.length > 0 && (
-            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-              <button
-                onClick={() => setDueTodayExpanded(!dueTodayExpanded)}
-                className="w-full flex items-center justify-between p-3 hover:bg-gray-750 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-white">Due Today</h3>
-                  <span className="bg-cyan-500/20 text-cyan-400 text-xs px-1.5 py-0.5 rounded font-medium">
-                    {itemsDueToday.length}
-                  </span>
-                </div>
-                <ChevronRightIcon className={`h-4 w-4 text-gray-400 transition-transform ${dueTodayExpanded ? 'rotate-90' : ''}`} />
-              </button>
-              {dueTodayExpanded && (
-                <div className="px-3 pb-3 space-y-2">
-                  {userStack.map((stackItem, index) => {
-                    const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
-                    const lastDose = recentDoses
-                      .filter(dose => dose.peptide_id === stackItem.peptide_id)
-                      .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
-                    const isDueToday = lastDose
-                      ? new Date(lastDose.administration_time).toDateString() !== new Date().toDateString()
-                      : true
-                    return (
-                      <div
-                        key={index}
-                        className={`flex items-center justify-between p-2.5 rounded-lg ${
-                          isDueToday ? 'bg-cyan-600/10 border border-cyan-500/20' : 'bg-gray-700/40'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-base">💉</span>
-                          <div className="min-w-0">
-                            <div className="text-white text-sm font-medium truncate">{peptide?.name}</div>
-                            <div className="text-gray-400 text-xs">
-                              {stackItem.schedule.doses[0]?.amount}{stackItem.schedule.doses[0]?.unit}
-                            </div>
-                          </div>
-                        </div>
-                        {isDueToday ? (
-                          <Link
-                            href="/log-dose"
-                            className="bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-2.5 py-1 rounded text-xs transition-colors flex-shrink-0"
-                          >
-                            Log
-                          </Link>
-                        ) : (
-                          <span className="text-green-400 text-xs font-medium bg-green-500/20 px-2 py-0.5 rounded flex-shrink-0">✓ Done</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ===== SECTION CARDS GRID ===== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-6">
-          {/* Meals/Calories Card (Prominent, full width on sm screens) */}
-          <div className="sm:col-span-2 bg-gradient-to-br from-gray-800 to-gray-800/80 rounded-xl p-4 border border-orange-500/20 shadow-lg shadow-orange-500/5">
-            {/* Header row */}
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-                <FireIcon className="h-6 w-6 text-orange-500" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base font-semibold text-white truncate">Meals & Calories</h3>
-                <p className="text-gray-400 text-xs truncate">Today's nutrition</p>
-              </div>
-            </div>
-
-            {/* Progress bar inline */}
-            <div className="mb-3">
-              <div className="flex items-baseline gap-2 mb-1.5">
-                <span className="text-2xl font-bold text-white">{todayCalories}</span>
-                <span className="text-gray-400 text-sm">/ {calorieGoal} kcal</span>
-              </div>
-              <div className="h-2.5 bg-gray-700 rounded-full overflow-hidden mb-1.5">
-                <div
-                  className="h-full bg-gradient-to-r from-orange-500 to-yellow-400 transition-all duration-500"
-                  style={{ width: `${calorieProgress}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className={`font-medium ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {remainingCalories >= 0 ? `${remainingCalories} remaining` : `${Math.abs(remainingCalories)} over`}
-                </span>
-                <span className="text-gray-500">{Math.round(calorieProgress)}%</span>
-              </div>
-            </div>
-
-            {/* Stats row */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white truncate">{todayMeals.length}</div>
-                <div className="text-gray-500 text-xs truncate">Meals</div>
-              </div>
-              <div className="min-w-0">
-                <div className={`text-sm font-semibold truncate ${remainingCalories >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {remainingCalories >= 0 ? remainingCalories : Math.abs(remainingCalories)}
-                </div>
-                <div className="text-gray-500 text-xs truncate">{remainingCalories >= 0 ? 'Left' : 'Over'}</div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex gap-2">
-              <button
-                onClick={openQuickAdd}
-                className="flex-1 bg-gray-700/50 hover:bg-gray-700 border border-gray-600/50 text-cyan-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                <PlusIcon className="h-4 w-4" />
-                Quick Add
-              </button>
-              <Link
-                href="/meals"
-                className="flex-1 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-400 font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                View All
-                <ChevronRightIcon className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-
-          {/* Peptides */}
-          <SectionCard
-            icon="💉"
-            title="Peptides"
-            subtitle="Protocols & PK graphs"
-            stats={[
-              { value: userStack.length > 0 ? userStack.length : availablePeptides.length, label: userStack.length > 0 ? 'In stack' : 'Available' },
-              { value: stats.peptides, label: 'This week' },
-              { value: userStack.length > 0 ? '95%' : '-', label: 'Adherence' }
-            ]}
-            ctaText={userStack.length > 0 ? 'View stack & PK' : 'Setup stack'}
-            href="/log-dose"
-          />
-
-          {/* Supplements */}
-          <SectionCard
-            icon="💊"
-            title="Supplements"
-            subtitle="Daily routine"
-            stats={[
-              { value: '-', label: 'This week' },
-              { value: '-', label: 'Due today' },
-              { value: '-', label: 'In stock' }
-            ]}
-            ctaText="Track supplements"
-            href="/supplements"
-          />
-
-          {/* Vitals */}
-          <SectionCard
-            icon="📊"
-            title="Vitals"
-            subtitle="Weight, BP, glucose"
-            stats={[
-              { value: vitalsData?.length || '-', label: 'Readings' },
-              { value: latestVitals ? new Date(latestVitals.measured_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '-', label: 'Last' },
-              { value: '-', label: 'Types' }
-            ]}
-            ctaText="Track vitals"
-            href="/vitals"
-          />
-
-          {/* Blood Results */}
-          <SectionCard
-            icon="🧪"
-            title="Blood Results"
-            subtitle="AI-powered analysis"
-            stats={[
-              { value: '-', label: 'Panels' },
-              { value: '-', label: 'Last test' },
-              { value: '-', label: 'Flagged' }
-            ]}
-            ctaText="Log & analyze"
-            href="/blood-results"
-          />
-
-          {/* Workouts - Coming Soon */}
-          <SectionCard
-            icon="🏋️"
-            title="Workouts"
-            subtitle="Training sessions"
-            stats={[
-              { value: '-', label: 'This week' },
-              { value: '-', label: 'Last' },
-              { value: '-', label: 'Progress' }
-            ]}
-            ctaText="Coming soon"
-            comingSoon
-            className="col-span-full"
-          />
-        </div>
-
-        {/* Spacer for bottom nav */}
-        <div className="h-16"></div>
-      </div>
-
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-5 py-1.5">
-            <div className="flex flex-col items-center py-1.5 text-cyan-400">
-              <span className="text-lg mb-0.5">🏠</span>
-              <span className="text-[10px]">Dashboard</span>
-            </div>
-            <Link href="/log-dose" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
-              <span className="text-lg mb-0.5">💉</span>
-              <span className="text-[10px]">Peptides</span>
-            </Link>
-            <Link href="/meals" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
-              <span className="text-lg mb-0.5">🍽️</span>
-              <span className="text-[10px]">Meals</span>
-            </Link>
-            <Link href="/vitals" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
-              <span className="text-lg mb-0.5">📊</span>
-              <span className="text-[10px]">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-1.5 text-gray-400 hover:text-white transition-colors">
-              <span className="text-lg mb-0.5">🧪</span>
-              <span className="text-[10px]">Blood Results</span>
-            </Link>
           </div>
         </div>
-      </div>
+      </main>
+
+      <BottomNav active="dashboard" />
 
       {/* Day Detail Modal */}
       {modalOpen && selectedDay && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
           onClick={closeModal}
         >
           <div
-            className="bg-gray-800 rounded-xl p-5 w-full max-w-sm border border-gray-700 max-h-[80vh] overflow-y-auto"
+            className="max-h-[85dvh] w-full max-w-sm overflow-y-auto rounded-xl border border-gray-700 bg-gray-800 p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -820,7 +634,7 @@ export default function LandingDashboard({ user }) {
               </div>
               <button
                 onClick={closeModal}
-                className="p-1.5 text-gray-400 hover:text-white rounded-lg transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-white"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
@@ -834,8 +648,8 @@ export default function LandingDashboard({ user }) {
                   return (
                     <div key={index} className="bg-gray-700 rounded-lg p-3 border border-gray-600">
                       <div className="flex justify-between items-center mb-2">
-                        <h5 className="text-white text-sm font-semibold">{peptide?.name}</h5>
-                        <span className="bg-purple-600 text-white px-2 py-0.5 rounded text-xs font-medium">
+                        <h5 className="text-base font-semibold text-white">{peptide?.name}</h5>
+                        <span className="rounded bg-cyan-500 px-2 py-0.5 text-xs font-medium text-white">
                           {dose.dose_amount}{dose.dose_unit}
                         </span>
                       </div>
@@ -866,6 +680,48 @@ export default function LandingDashboard({ user }) {
               </div>
             )}
 
+            {selectedDayFoodLoading ? (
+              <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/60 p-3">
+                <h4 className="mb-2 text-sm font-semibold text-white">Food</h4>
+                <p className="text-xs text-gray-400">Loading food summary...</p>
+              </div>
+            ) : selectedDayFood.logs.length > 0 && selectedDayFood.totals ? (
+              <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/60 p-3">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-white">Food</h4>
+                  <span className="text-xs text-cyan-400">{Math.round(selectedDayFood.totals.calories || 0)} kcal</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+                  <div className="rounded-lg bg-gray-800 px-2 py-2">
+                    <div className="font-semibold text-white">{Math.round(selectedDayFood.totals.calories || 0)}</div>
+                    <div className="text-gray-500">kcal</div>
+                  </div>
+                  <div className="rounded-lg bg-gray-800 px-2 py-2">
+                    <div className="font-semibold text-cyan-400">{Math.round((selectedDayFood.totals.protein || 0) * 10) / 10}g</div>
+                    <div className="text-gray-500">Protein</div>
+                  </div>
+                  <div className="rounded-lg bg-gray-800 px-2 py-2">
+                    <div className="font-semibold text-cyan-400">{Math.round((selectedDayFood.totals.carbs || 0) * 10) / 10}g</div>
+                    <div className="text-gray-500">Carbs</div>
+                  </div>
+                  <div className="rounded-lg bg-gray-800 px-2 py-2">
+                    <div className="font-semibold text-cyan-400">{Math.round((selectedDayFood.totals.fat || 0) * 10) / 10}g</div>
+                    <div className="text-gray-500">Fat</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(getFoodSummaryByMeal(selectedDayFood.logs)).map(([mealType, mealSummary]) => (
+                    <div key={mealType} className="flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2 text-xs">
+                      <span className="capitalize text-white">{mealType}</span>
+                      <span className="text-gray-400">
+                        {mealSummary.count} item{mealSummary.count === 1 ? '' : 's'} • {Math.round(mealSummary.calories)} kcal
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2">
               <Link
                 href="/log-dose"
@@ -885,18 +741,18 @@ export default function LandingDashboard({ user }) {
       {/* Quick Add Calories Modal */}
       {quickAddOpen && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
           onClick={closeQuickAdd}
         >
           <div
-            className="bg-gray-800 w-full max-w-sm rounded-xl p-5 border border-gray-700"
+            className="max-h-[85dvh] w-full max-w-sm overflow-y-auto rounded-xl border border-gray-700 bg-gray-800 p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">Quick Add Food</h3>
               <button
                 onClick={closeQuickAdd}
-                className="p-1.5 text-gray-400 hover:text-white rounded-lg transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-white"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
@@ -904,7 +760,7 @@ export default function LandingDashboard({ user }) {
 
             <form onSubmit={handleQuickAddSubmit} className="space-y-3">
               <div>
-                <label className="text-gray-400 text-xs mb-1 block">
+                <label className="mb-1 block text-sm text-gray-400">
                   Food Name <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -913,13 +769,13 @@ export default function LandingDashboard({ user }) {
                   value={quickAddForm.food_name}
                   onChange={handleQuickAddChange}
                   placeholder="e.g., Protein Shake"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-gray-400 text-xs mb-1 block">
+                <label className="mb-1 block text-sm text-gray-400">
                   Calories <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -929,18 +785,18 @@ export default function LandingDashboard({ user }) {
                   onChange={handleQuickAddChange}
                   placeholder="e.g., 250"
                   min="0"
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-gray-400 text-xs mb-1 block">Meal Type</label>
+                <label className="mb-1 block text-sm text-gray-400">Meal Type</label>
                 <select
                   name="meal_type"
                   value={quickAddForm.meal_type}
                   onChange={handleQuickAddChange}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white transition-colors focus:border-cyan-500 focus:outline-none"
                 >
                   <option value="breakfast">🌅 Breakfast</option>
                   <option value="lunch">☀️ Lunch</option>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { peptides, peptideConfigs } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import { 
   ArrowLeftIcon, 
   PlusIcon,
@@ -779,16 +780,16 @@ export default function PeptideConfigurationWizard() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="flex h-screen flex-col bg-black text-white">
       {/* Header */}
-      <header className="bg-black border-b border-gray-800">
-        <div className="max-w-md mx-auto px-5 py-5">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
+        <div className="mx-auto flex h-full max-w-md items-center px-4">
           <div className="flex items-center">
-            <Link href="/" className="mr-4">
+            <Link href="/" className="mr-3 flex h-11 w-11 items-center justify-center">
               <ArrowLeftIcon className="h-6 w-6 text-gray-600" />
             </Link>
             <div>
-              <h1 className="text-xl font-semibold text-white">Configure Peptides</h1>
+              <h1 className="text-xl font-bold text-white">Configure Peptides</h1>
               <p className="text-gray-400 text-sm">
                 {currentStep === 'selection' && 'Build your peptide stack'}
                 {currentStep === 'configure' && `Configure ${configuringPeptide?.name}`}
@@ -798,7 +799,7 @@ export default function PeptideConfigurationWizard() {
         </div>
       </header>
 
-      <div className="max-w-md mx-auto px-5 py-6 pb-24">
+      <div className="page-content mx-auto max-w-md px-4 py-4">
         {/* Error Message */}
         {error && (
           <div className="mb-4 bg-red-900/30 border border-red-700 rounded-xl p-4 flex items-start gap-3">
@@ -911,7 +912,7 @@ export default function PeptideConfigurationWizard() {
                           ) : (
                             <button
                               onClick={() => addToStack(peptide)}
-                              className="bg-cyan-500 hover:bg-cyan-400 text-black px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+                              className="min-h-11 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-cyan-400"
                             >
                               Add
                             </button>
@@ -990,7 +991,7 @@ export default function PeptideConfigurationWizard() {
                 onChange={(e) => setScheduleConfig(prev => ({ ...prev, notes: e.target.value }))}
                 placeholder="Protocol notes, doctor instructions, etc..."
                 rows={3}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white resize-none"
+                className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white resize-none"
               />
             </div>
 
@@ -1022,33 +1023,7 @@ export default function PeptideConfigurationWizard() {
         )}
       </div>
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <div className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </div>
-            <Link href="/meals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link href="/vitals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="peptides" />
     </div>
   )
 }

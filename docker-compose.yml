@@ -30,6 +30,8 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - DATABASE_URL=file:./database.sqlite
+      - VOICE_API_KEY=${VOICE_API_KEY:-peptifit-voice-key}
+      - USDA_API_KEY=${USDA_API_KEY:-DEMO_KEY}
     volumes:
       - ./data:/app/data
     networks:

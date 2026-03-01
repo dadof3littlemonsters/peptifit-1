@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
-import { auth, meals as mealsApi } from '../lib/api'
-import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import { meals as mealsApi, food as foodApi } from '../lib/api'
+import BottomNav from '../components/BottomNav'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusIcon,
   XMarkIcon,
   TrashIcon,
-  ClockIcon,
   FireIcon,
   DocumentDuplicateIcon,
   MagnifyingGlassIcon
@@ -36,6 +36,121 @@ const FREQUENT_FOODS = [
   { id: 8, name: 'Salmon', calories: 208, protein: 20, carbs: 0, fat: 13 }
 ]
 
+const BarcodeScanner = dynamic(() => import('../components/BarcodeScanner'), {
+  ssr: false
+})
+
+function roundValue(value) {
+  return Math.round((Number(value) || 0) * 10) / 10
+}
+
+function formatMacro(value) {
+  return `${roundValue(value)}g`
+}
+
+function buildMealFromFood(item, quantityG, mealType) {
+  const quantity = Number(quantityG) || 0
+
+  return {
+    meal_type: mealType,
+    food_name: item.name,
+    calories: Math.round(((item.calories_per_100g || 0) / 100) * quantity),
+    protein: roundValue(((item.protein_per_100g || 0) / 100) * quantity) || null,
+    carbs: roundValue(((item.carbs_per_100g || 0) / 100) * quantity) || null,
+    fat: roundValue(((item.fat_per_100g || 0) / 100) * quantity) || null,
+    logged_at: new Date().toISOString()
+  }
+}
+
+function PortionSelector({
+  item,
+  mealType,
+  quantityG,
+  onQuantityChange,
+  onConfirm,
+  onCancel,
+  saving
+}) {
+  const mealDraft = useMemo(
+    () => buildMealFromFood(item, quantityG, mealType),
+    [item, quantityG, mealType]
+  )
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/30 bg-gray-900 p-4">
+      <div className="mb-3">
+        <h3 className="text-base font-semibold text-white">{item.name}</h3>
+        <p className="text-sm text-gray-400">{item.brand || 'No brand listed'}</p>
+      </div>
+
+      <label className="mb-2 block text-sm font-medium text-gray-400">
+        Portion Size (grams)
+      </label>
+      <input
+        type="number"
+        min="1"
+        value={quantityG}
+        onChange={(event) => onQuantityChange(event.target.value)}
+        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
+      />
+
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[50, 100, 150, 200].map((portion) => (
+          <button
+            key={portion}
+            type="button"
+            onClick={() => onQuantityChange(String(portion))}
+            className={`min-h-[44px] rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+              Number(quantityG) === portion
+                ? 'bg-cyan-500 text-black'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            {portion}g
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl bg-gray-800 p-3 text-center text-sm">
+        <div>
+          <div className="font-semibold text-white">{mealDraft.calories}</div>
+          <div className="text-xs text-gray-400">kcal</div>
+        </div>
+        <div>
+          <div className="font-semibold text-cyan-400">{formatMacro(mealDraft.protein)}</div>
+          <div className="text-xs text-gray-400">Protein</div>
+        </div>
+        <div>
+          <div className="font-semibold text-cyan-400">{formatMacro(mealDraft.carbs)}</div>
+          <div className="text-xs text-gray-400">Carbs</div>
+        </div>
+        <div>
+          <div className="font-semibold text-cyan-400">{formatMacro(mealDraft.fat)}</div>
+          <div className="text-xs text-gray-400">Fat</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex min-h-[56px] flex-1 items-center justify-center rounded-xl border border-gray-700 bg-gray-800 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(mealDraft)}
+          disabled={saving || !(Number(quantityG) > 0)}
+          className="flex min-h-[56px] flex-1 items-center justify-center rounded-xl bg-cyan-500 py-3 text-sm font-semibold text-black transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? 'Saving...' : `Log to ${MEAL_TYPES.find((meal) => meal.id === mealType)?.label}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Meals({ user }) {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [meals, setMeals] = useState([])
@@ -46,6 +161,21 @@ export default function Meals({ user }) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedMealType, setSelectedMealType] = useState('breakfast')
   const [searchQuery, setSearchQuery] = useState('')
+
+  const [foodSearchOpen, setFoodSearchOpen] = useState(false)
+  const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false)
+  const [scannerMode, setScannerMode] = useState('barcode')
+  const [foodSearchQuery, setFoodSearchQuery] = useState('')
+  const [foodSearchLoading, setFoodSearchLoading] = useState(false)
+  const [foodSearchResults, setFoodSearchResults] = useState([])
+  const [foodSearchError, setFoodSearchError] = useState('')
+  const [scannerError, setScannerError] = useState('')
+  const [scannerLookupLoading, setScannerLookupLoading] = useState(false)
+  const [scannerNotFound, setScannerNotFound] = useState(false)
+  const [selectedFood, setSelectedFood] = useState(null)
+  const [selectedSource, setSelectedSource] = useState(null)
+  const [quantityG, setQuantityG] = useState('100')
+  const [savingFood, setSavingFood] = useState(false)
   
   // Form state
   const [formData, setFormData] = useState({
@@ -61,6 +191,33 @@ export default function Meals({ user }) {
     loadMeals()
     loadCalorieGoal()
   }, [selectedDate])
+
+  useEffect(() => {
+    if (!foodSearchOpen || selectedFood || foodSearchQuery.trim().length < 2) {
+      if (!foodSearchQuery.trim()) {
+        setFoodSearchResults([])
+        setFoodSearchError('')
+      }
+      return undefined
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setFoodSearchLoading(true)
+      setFoodSearchError('')
+
+      try {
+        const response = await foodApi.search(foodSearchQuery.trim())
+        setFoodSearchResults(response.results || [])
+      } catch (error) {
+        setFoodSearchResults([])
+        setFoodSearchError(error.response?.data?.error || 'Search failed')
+      } finally {
+        setFoodSearchLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [foodSearchOpen, foodSearchQuery, selectedFood])
 
   const loadCalorieGoal = () => {
     try {
@@ -102,7 +259,7 @@ export default function Meals({ user }) {
       await loadMeals()
     } catch (error) {
       console.error('Failed to save meal:', error)
-      alert('Failed to save meal. Please try again.')
+      throw error
     }
   }
 
@@ -168,6 +325,105 @@ export default function Meals({ user }) {
     setIsModalOpen(false)
   }
 
+  const resetFoodSelection = () => {
+    setSelectedFood(null)
+    setSelectedSource(null)
+    setQuantityG('100')
+  }
+
+  const openSearch = () => {
+    closeModal()
+    closeBarcodeScanner()
+    setFoodSearchOpen(true)
+  }
+
+  const openBarcodeScanner = () => {
+    closeModal()
+    closeFoodSearch()
+    setScannerMode('barcode')
+    setSelectedSource('scanner')
+    setBarcodeScannerOpen(true)
+  }
+
+  const openLabelScanner = () => {
+    closeModal()
+    closeFoodSearch()
+    setScannerMode('label')
+    setSelectedSource('scanner')
+    setBarcodeScannerOpen(true)
+  }
+
+  const closeFoodSearch = () => {
+    setFoodSearchOpen(false)
+    setFoodSearchQuery('')
+    setFoodSearchResults([])
+    setFoodSearchError('')
+    resetFoodSelection()
+  }
+
+  const closeBarcodeScanner = () => {
+    setBarcodeScannerOpen(false)
+    setScannerMode('barcode')
+    setScannerError('')
+    setScannerLookupLoading(false)
+    setScannerNotFound(false)
+    resetFoodSelection()
+  }
+
+  const handleFoodChoice = (item, source) => {
+    setSelectedFood(item)
+    setSelectedSource(source)
+    setQuantityG(item.serving_size_g ? String(Math.round(item.serving_size_g)) : '100')
+  }
+
+  const handleLogSelectedFood = async (mealDraft) => {
+    try {
+      setSavingFood(true)
+      await addMeal(mealDraft)
+
+      if (selectedSource === 'scanner') {
+        closeBarcodeScanner()
+      } else {
+        closeFoodSearch()
+      }
+    } catch (error) {
+      const message = error.response?.data?.error || 'Failed to save meal'
+      if (selectedSource === 'scanner') {
+        setScannerError(message)
+      } else {
+        setFoodSearchError(message)
+      }
+    } finally {
+      setSavingFood(false)
+    }
+  }
+
+  const handleBarcodeDetected = async (rawCode) => {
+    const code = String(rawCode || '').trim()
+
+    if (!code) {
+      return
+    }
+
+    setScannerLookupLoading(true)
+    setScannerError('')
+    setScannerNotFound(false)
+
+    try {
+      const item = await foodApi.lookupBarcode(code)
+      handleFoodChoice(item, 'scanner')
+    } catch (error) {
+      if (error.response?.status === 404) {
+        setScannerNotFound(true)
+        return
+      }
+
+      setScannerError(error.response?.data?.error || 'Barcode lookup failed')
+    } finally {
+      setScannerLookupLoading(false)
+    }
+  }
+
   const handleInputChange = (e) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
@@ -200,8 +456,13 @@ export default function Meals({ user }) {
       logged_at: new Date().toISOString()
     }
 
-    await addMeal(newMeal)
-    closeModal()
+    try {
+      await addMeal(newMeal)
+      closeModal()
+    } catch (error) {
+      console.error('Failed to save meal:', error)
+      alert('Failed to save meal. Please try again.')
+    }
   }
 
   const deleteMeal = async (mealId) => {
@@ -261,20 +522,20 @@ export default function Meals({ user }) {
   const remainingCalories = calorieGoal - dailyTotals.calories
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white pb-24">
+    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
       {/* Header */}
-      <header className="bg-[#0f172a] border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-full max-w-md items-center px-4">
+          <div className="flex w-full items-center justify-between">
             <button
               onClick={goToPreviousDay}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
+              className="flex h-11 w-11 items-center justify-center text-gray-400 transition-colors hover:text-white"
             >
               <ChevronLeftIcon className="h-6 w-6" />
             </button>
             
             <div className="text-center">
-              <h1 className="text-xl font-bold text-white">Food Diary</h1>
+              <h1 className="text-xl font-bold text-white">Diary</h1>
               <p className="text-cyan-400 text-sm font-medium">
                 {formatDate(selectedDate)}
               </p>
@@ -282,7 +543,7 @@ export default function Meals({ user }) {
             
             <button
               onClick={goToNextDay}
-              className="p-2 text-gray-400 hover:text-white transition-colors"
+              className="flex h-11 w-11 items-center justify-center text-gray-400 transition-colors hover:text-white"
               disabled={isToday()}
             >
               <ChevronRightIcon className={`h-6 w-6 ${isToday() ? 'opacity-30' : ''}`} />
@@ -291,7 +552,28 @@ export default function Meals({ user }) {
         </div>
       </header>
 
-      <div className="max-w-md mx-auto px-4">
+      <div className="sticky top-14 z-20 border-b border-gray-800 bg-gray-900 px-4 py-3">
+        <div className="mx-auto grid max-w-lg grid-cols-4 gap-2">
+          {MEAL_TYPES.map((type) => (
+            <button
+              key={type.id}
+              type="button"
+              onClick={() => setSelectedMealType(type.id)}
+              className={`min-h-[48px] rounded-xl px-2 py-2 text-sm font-medium transition-colors ${
+                selectedMealType === type.id
+                  ? 'bg-cyan-500 text-black'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              <span className="block text-lg mb-0.5">{type.icon}</span>
+              <span className="text-xs">{type.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main className="flex-1 overflow-y-auto pb-40">
+      <div className="mx-auto max-w-md px-4">
         {/* Summary Bar */}
         <div className="mt-4 bg-gray-800/50 rounded-2xl p-4 border border-gray-700">
           <div className="flex items-center justify-between mb-3">
@@ -346,77 +628,104 @@ export default function Meals({ user }) {
           {MEAL_TYPES.map((mealType) => {
             const typeMeals = mealsByType[mealType.id] || []
             const typeCalories = getMealTypeTotal(mealType.id)
+            const isActiveMeal = selectedMealType === mealType.id
+            const isCollapsed = typeMeals.length === 0 && !isActiveMeal
             
             return (
               <div
                 key={mealType.id}
-                className="bg-gray-800/30 rounded-2xl border border-gray-700/50 overflow-hidden"
+                className={`overflow-hidden rounded-2xl border transition-colors ${
+                  isActiveMeal
+                    ? 'border-cyan-500/30 bg-gray-800/40'
+                    : 'border-gray-700/50 bg-gray-800/30'
+                }`}
               >
                 {/* Section Header */}
-                <div className="px-4 py-3 bg-gray-800/50 flex items-center justify-between">
+                <div
+                  className={`flex items-center justify-between bg-gray-800/50 px-4 ${
+                    isCollapsed ? 'py-4' : 'py-3'
+                  }`}
+                >
                   <div className="flex items-center gap-3">
                     <span className="text-2xl">{mealType.icon}</span>
                     <div>
                       <h3 className="font-semibold text-white">{mealType.label}</h3>
-                      {typeCalories > 0 && (
+                      {typeCalories > 0 ? (
                         <p className="text-gray-400 text-xs">{typeCalories} kcal</p>
+                      ) : isCollapsed ? (
+                        <p className="text-gray-500 text-xs">Tap to expand</p>
+                      ) : (
+                        <p className="text-gray-500 text-xs">No foods logged</p>
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => openModal(mealType.id)}
-                    className="p-2 text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors"
-                  >
-                    <PlusIcon className="h-5 w-5" />
-                  </button>
-                </div>
-                
-                {/* Food Items */}
-                {typeMeals.length > 0 ? (
-                  <div className="divide-y divide-gray-700/50">
-                    {typeMeals.map((meal) => (
-                      <div
-                        key={meal.id}
-                        className="px-4 py-3 flex items-center justify-between group hover:bg-gray-800/30 transition-colors"
+
+                  <div className="flex items-center gap-2">
+                    {isCollapsed && (
+                      <button
+                        onClick={() => setSelectedMealType(mealType.id)}
+                        className="rounded-lg px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700"
                       >
-                        <div className="flex-1">
-                          <p className="text-white font-medium text-sm">{meal.food_name}</p>
-                          {(meal.protein || meal.carbs || meal.fat) && (
-                            <p className="text-gray-400 text-xs mt-0.5">
-                              {meal.protein > 0 && `P: ${Math.round(meal.protein)}g `}
-                              {meal.carbs > 0 && `C: ${Math.round(meal.carbs)}g `}
-                              {meal.fat > 0 && `F: ${Math.round(meal.fat)}g`}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-cyan-400 font-medium text-sm">
-                            {meal.calories}
-                          </span>
-                          <button
-                            onClick={() => deleteMeal(meal.id)}
-                            className="p-1.5 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        Open
+                      </button>
+                    )}
+                    <button
+                      onClick={() => openModal(mealType.id)}
+                      className="flex h-11 w-11 items-center justify-center rounded-lg text-cyan-400 transition-colors hover:bg-cyan-500/10"
+                    >
+                      <PlusIcon className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {!isCollapsed && (
+                  <>
+                    {typeMeals.length > 0 ? (
+                      <div className="divide-y divide-gray-700/50">
+                        {typeMeals.map((meal) => (
+                          <div
+                            key={meal.id}
+                            className="group flex items-center justify-between px-4 py-3 transition-colors hover:bg-gray-800/30"
                           >
-                            <TrashIcon className="h-4 w-4" />
-                          </button>
-                        </div>
+                            <div className="flex-1">
+                              <p className="text-white font-medium text-sm">{meal.food_name}</p>
+                              {(meal.protein || meal.carbs || meal.fat) && (
+                                <p className="mt-0.5 text-xs text-gray-400">
+                                  {meal.protein > 0 && `P: ${Math.round(meal.protein)}g `}
+                                  {meal.carbs > 0 && `C: ${Math.round(meal.carbs)}g `}
+                                  {meal.fat > 0 && `F: ${Math.round(meal.fat)}g`}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-cyan-400 font-medium text-sm">
+                                {meal.calories}
+                              </span>
+                              <button
+                                onClick={() => deleteMeal(meal.id)}
+                                className="flex h-11 w-11 items-center justify-center text-gray-500 opacity-0 transition-all group-hover:opacity-100 hover:text-red-400"
+                              >
+                                <TrashIcon className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="px-4 py-6 text-center">
-                    <p className="text-gray-500 text-sm">No foods logged</p>
-                  </div>
+                    ) : (
+                      <div className="px-4 py-6 text-center">
+                        <p className="text-gray-500 text-sm">No foods logged</p>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => openModal(mealType.id)}
+                      className="flex w-full items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-cyan-400 transition-colors hover:bg-cyan-500/5"
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                      Add Food
+                    </button>
+                  </>
                 )}
-                
-                {/* Add Food Button */}
-                <button
-                  onClick={() => openModal(mealType.id)}
-                  className="w-full px-4 py-3 text-cyan-400 text-sm font-medium hover:bg-cyan-500/5 transition-colors flex items-center justify-center gap-2"
-                >
-                  <PlusIcon className="h-4 w-4" />
-                  Add Food
-                </button>
               </div>
             )
           })}
@@ -433,15 +742,188 @@ export default function Meals({ user }) {
           </button>
         )}
       </div>
+      </main>
+
+      <div className="fixed bottom-[calc(68px+env(safe-area-inset-bottom))] left-0 right-0 z-40 border-t border-gray-800 bg-gray-900/95 p-2 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-lg gap-2">
+          <button
+            onClick={openSearch}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-gray-800 px-3 py-2 text-sm font-medium text-white"
+          >
+            <span className="text-base">🔍</span>
+            <span className="text-xs text-gray-300">Search</span>
+          </button>
+          <button
+            onClick={openBarcodeScanner}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-gray-800 px-3 py-2 text-sm font-medium text-white"
+          >
+            <span className="text-base">📷</span>
+            <span className="text-xs text-gray-300">Barcode</span>
+          </button>
+          <button
+            onClick={openLabelScanner}
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-gray-800 px-3 py-2 text-sm font-medium text-white"
+          >
+            <span className="text-base">📸</span>
+            <span className="text-xs text-gray-300">Scan Label</span>
+          </button>
+        </div>
+      </div>
+
+      {foodSearchOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onClick={closeFoodSearch}
+        >
+          <div
+            className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  {selectedFood ? 'Choose Portion' : 'Search Food'}
+                </h2>
+                <p className="text-sm text-gray-400">
+                  Log to {MEAL_TYPES.find((meal) => meal.id === selectedMealType)?.label}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeFoodSearch}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-700 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {selectedFood ? (
+              <PortionSelector
+                item={selectedFood}
+                mealType={selectedMealType}
+                quantityG={quantityG}
+                onQuantityChange={setQuantityG}
+                onConfirm={handleLogSelectedFood}
+                onCancel={resetFoodSelection}
+                saving={savingFood}
+              />
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={foodSearchQuery}
+                  onChange={(event) => setFoodSearchQuery(event.target.value)}
+                  placeholder="Search chicken breast, yogurt, oats..."
+                  className="mb-4 w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-base text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none"
+                />
+
+                {foodSearchLoading && <p className="text-sm text-gray-400">Searching...</p>}
+                {foodSearchError && <p className="mb-3 text-sm text-red-400">{foodSearchError}</p>}
+
+                <div className="max-h-80 space-y-2 overflow-y-auto">
+                  {foodSearchResults.map((item) => (
+                    <button
+                      key={`${item.source}-${item.id}`}
+                      type="button"
+                      onClick={() => handleFoodChoice(item, 'search')}
+                      className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-left transition-colors hover:border-cyan-500/40 hover:bg-gray-800"
+                    >
+                      <div className="text-base font-semibold text-white">{item.name}</div>
+                      <div className="mt-1 text-sm text-gray-400">{item.brand || 'No brand listed'}</div>
+                      <div className="mt-2 text-xs text-cyan-400">
+                        {item.calories_per_100g ?? 'N/A'} kcal / 100g
+                      </div>
+                    </button>
+                  ))}
+                  {!foodSearchLoading && foodSearchQuery.trim().length >= 2 && foodSearchResults.length === 0 && !foodSearchError && (
+                    <p className="text-sm text-gray-400">No results found.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {barcodeScannerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onClick={closeBarcodeScanner}
+        >
+          <div
+            className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  {selectedFood ? 'Confirm Portion' : scannerMode === 'label' ? 'Scan Label' : 'Scan Barcode'}
+                </h2>
+                <p className="text-sm text-gray-400">
+                  Log to {MEAL_TYPES.find((meal) => meal.id === selectedMealType)?.label}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeBarcodeScanner}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-700 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {selectedFood ? (
+              <PortionSelector
+                item={selectedFood}
+                mealType={selectedMealType}
+                quantityG={quantityG}
+                onQuantityChange={setQuantityG}
+                onConfirm={handleLogSelectedFood}
+                onCancel={resetFoodSelection}
+                saving={savingFood}
+              />
+            ) : (
+              <>
+                <BarcodeScanner
+                  active={barcodeScannerOpen && !selectedFood && !scannerLookupLoading}
+                  onDetected={handleBarcodeDetected}
+                  onError={() => setScannerError('Unable to access camera. Check browser permissions and HTTPS.')}
+                />
+
+                <p className="mt-3 text-sm text-gray-400">
+                  {scannerMode === 'label'
+                    ? 'Frame the product barcode or nutrition label clearly. If detection fails, switch to Search.'
+                    : 'Point the camera at the product barcode.'}
+                </p>
+
+                {scannerLookupLoading && <p className="mt-3 text-sm text-gray-400">Looking up product...</p>}
+                {scannerError && <p className="mt-3 text-sm text-red-400">{scannerError}</p>}
+                {scannerNotFound && (
+                  <div className="mt-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+                    <p className="text-sm text-yellow-200">Product not found. Try searching by name instead.</p>
+                    <button
+                      type="button"
+                      onClick={openSearch}
+                      className="mt-3 min-h-[44px] rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-cyan-400"
+                    >
+                      Search by name
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Add Food Modal */}
       {isModalOpen && (
         <div
-          className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
           onClick={closeModal}
         >
           <div
-            className="bg-gray-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-hidden"
+            className="max-h-[85dvh] w-full max-w-md overflow-hidden rounded-t-3xl bg-gray-800 sm:rounded-3xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -454,7 +936,7 @@ export default function Meals({ user }) {
               </div>
               <button
                 onClick={closeModal}
-                className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:text-white"
               >
                 <XMarkIcon className="h-6 w-6" />
               </button>
@@ -469,7 +951,7 @@ export default function Meals({ user }) {
                     <button
                       key={type.id}
                       onClick={() => setSelectedMealType(type.id)}
-                      className={`py-2 px-1 rounded-xl text-sm font-medium transition-colors ${
+                      className={`min-h-12 rounded-xl px-1 py-2 text-sm font-medium transition-colors ${
                         selectedMealType === type.id
                           ? 'bg-cyan-500 text-black'
                           : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -491,7 +973,7 @@ export default function Meals({ user }) {
                     placeholder="Search frequent foods..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 bg-transparent text-white text-sm placeholder-gray-500 focus:outline-none"
+                    className="flex-1 bg-transparent text-base text-white placeholder-gray-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-2 -mx-5 px-5 scrollbar-hide">
@@ -520,7 +1002,7 @@ export default function Meals({ user }) {
                     value={formData.food_name}
                     onChange={handleInputChange}
                     placeholder="e.g., Grilled Chicken Salad"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     required
                   />
                 </div>
@@ -536,7 +1018,7 @@ export default function Meals({ user }) {
                     onChange={handleInputChange}
                     placeholder="e.g., 350"
                     min="0"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     required
                   />
                 </div>
@@ -553,7 +1035,7 @@ export default function Meals({ user }) {
                         placeholder="Protein"
                         min="0"
                         step="0.1"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center text-sm"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-3 text-center text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                       />
                       <span className="text-gray-500 text-xs block text-center mt-1">Protein (g)</span>
                     </div>
@@ -566,7 +1048,7 @@ export default function Meals({ user }) {
                         placeholder="Carbs"
                         min="0"
                         step="0.1"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center text-sm"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-3 text-center text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                       />
                       <span className="text-gray-500 text-xs block text-center mt-1">Carbs (g)</span>
                     </div>
@@ -579,7 +1061,7 @@ export default function Meals({ user }) {
                         placeholder="Fat"
                         min="0"
                         step="0.1"
-                        className="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center text-sm"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-3 text-center text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                       />
                       <span className="text-gray-500 text-xs block text-center mt-1">Fat (g)</span>
                     </div>
@@ -598,33 +1080,7 @@ export default function Meals({ user }) {
         </div>
       )}
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </Link>
-            <Link href="/meals" className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link href="/vitals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="diary" />
     </div>
   )
 }

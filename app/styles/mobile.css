@@ -1,0 +1,55 @@
+/* Dynamic viewport height - fixes Android Chrome address bar issue */
+:root {
+  --app-height: 100dvh;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Ensure the Next.js root fills viewport */
+#__next {
+  height: 100dvh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Base font size bump for readability */
+html {
+  font-size: 16px;
+}
+
+/* Minimum tap target size */
+button,
+a,
+[role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Safe area for bottom nav on Android */
+.bottom-nav {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+/* Scrollable content area between fixed header and fixed nav */
+.page-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}

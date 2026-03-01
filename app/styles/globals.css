@@ -11,6 +11,12 @@
   body {
     @apply bg-gray-50 text-gray-900;
   }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 @layer components {
@@ -51,4 +57,20 @@
     font-size: 1.125rem;
     line-height: 1.5;
   }
+}
+
+/* Android Chrome viewport fix */
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Prevent Android Chrome auto-zoom on input focus */
+input, select, textarea {
+  font-size: 16px !important;
 }

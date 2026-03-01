@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { peptides, peptideConfigs, peptideDoses } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import { 
   ArrowLeftIcon, 
   CheckIcon, 
@@ -270,16 +271,16 @@ export default function LogDose() {
   }
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="flex h-screen flex-col bg-black">
       {/* Header */}
-      <header className="bg-black border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-5 py-4">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
+        <div className="mx-auto flex h-full max-w-md items-center px-4">
           <div className="flex items-center">
-            <Link href="/" className="mr-4 p-2 -ml-2 hover:bg-gray-900 rounded-lg transition-colors">
+            <Link href="/" className="mr-3 flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-gray-900">
               <ArrowLeftIcon className="h-6 w-6 text-gray-400" />
             </Link>
             <div>
-              <h1 className="text-xl font-semibold text-white">Log Dose</h1>
+              <h1 className="text-xl font-bold text-white">Log Dose</h1>
               <p className="text-gray-500 text-sm">
                 {showManualForm && selectedPeptide 
                   ? selectedPeptide.name 
@@ -291,7 +292,7 @@ export default function LogDose() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-md mx-auto px-5 py-6 pb-24">
+      <main className="page-content mx-auto max-w-md px-4 py-4">
         {/* Error Banner */}
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
@@ -447,7 +448,7 @@ export default function LogDose() {
                       placeholder="0.00"
                       value={formData.dose_amount}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-colors"
+                      className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-base text-white placeholder-gray-500 outline-none transition-colors focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                     />
                   </div>
                   <div>
@@ -455,7 +456,7 @@ export default function LogDose() {
                       name="dose_unit"
                       value={formData.dose_unit}
                       onChange={handleChange}
-                      className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-colors"
+                      className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-base text-white outline-none transition-colors focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                     >
                       <option value="mg">mg</option>
                       <option value="mcg">mcg</option>
@@ -481,7 +482,7 @@ export default function LogDose() {
                   required
                   value={formData.administration_time}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-colors"
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-base text-white outline-none transition-colors focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 />
               </div>
 
@@ -499,7 +500,7 @@ export default function LogDose() {
                       key={site.value}
                       type="button"
                       onClick={() => setFormData(prev => ({ ...prev, injection_site: site.value }))}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm transition-all ${
+                      className={`flex min-h-12 items-center gap-2 px-3 py-2.5 rounded-lg border text-sm transition-all ${
                         formData.injection_site === site.value
                           ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400'
                           : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-500'
@@ -523,7 +524,7 @@ export default function LogDose() {
                   placeholder="Any notes about this dose..."
                   value={formData.notes}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none resize-none transition-colors"
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 text-base text-white placeholder-gray-500 outline-none resize-none transition-colors focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                 />
               </div>
 
@@ -573,33 +574,7 @@ export default function LogDose() {
         )}
       </main>
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <div className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </div>
-            <Link href="/meals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link href="/vitals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="peptides" />
     </div>
   )
 }

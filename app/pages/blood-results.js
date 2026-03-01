@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { bloodResults, auth } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import { 
   ArrowLeftIcon,
   PlusIcon,
@@ -414,7 +415,7 @@ export default function BloodResultsPage() {
 
   if (loading && results.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading blood results...</p>
@@ -424,11 +425,11 @@ export default function BloodResultsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-[#0f172a] border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-5 py-4">
-          <div className="flex items-center justify-between">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-full w-full max-w-lg items-center px-4">
+          <div className="flex w-full items-center justify-between">
             <div className="flex items-center">
               {view !== 'list' && (
                 <button 
@@ -437,7 +438,7 @@ export default function BloodResultsPage() {
                     setSelectedResult(null);
                     setAiAnalysis(null);
                   }}
-                  className="mr-3"
+                  className="mr-3 flex h-11 w-11 items-center justify-center"
                 >
                   <ArrowLeftIcon className="h-6 w-6 text-gray-400 hover:text-white transition-colors" />
                 </button>
@@ -456,7 +457,7 @@ export default function BloodResultsPage() {
             {view === 'list' && (
               <button
                 onClick={() => setView('add')}
-                className="bg-cyan-500 hover:bg-cyan-400 text-black font-medium p-2 rounded-xl transition-colors"
+                className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500 font-medium text-black transition-colors hover:bg-cyan-400"
               >
                 <PlusIcon className="h-5 w-5" />
               </button>
@@ -466,7 +467,7 @@ export default function BloodResultsPage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-md mx-auto px-5 py-5 pb-24">
+      <main className="page-content mx-auto w-full max-w-lg px-4 py-4 pb-24">
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
             {error}
@@ -607,7 +608,7 @@ export default function BloodResultsPage() {
                     type="date"
                     value={formData.testDate}
                     onChange={(e) => setFormData({ ...formData, testDate: e.target.value })}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-base text-white transition-colors focus:border-cyan-500 focus:outline-none"
                     required
                   />
                 </div>
@@ -618,7 +619,7 @@ export default function BloodResultsPage() {
                     value={formData.labName}
                     onChange={(e) => setFormData({ ...formData, labName: e.target.value })}
                     placeholder="e.g., LabCorp, Quest Diagnostics"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -665,7 +666,7 @@ export default function BloodResultsPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search markers..."
-                  className="w-full bg-gray-900 border border-gray-700 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="w-full rounded-xl border border-gray-700 bg-gray-900 py-3 pl-10 pr-4 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                 />
               </div>
 
@@ -710,7 +711,7 @@ export default function BloodResultsPage() {
                           type="text"
                           value={marker.name}
                           onChange={(e) => updateMarker(marker.id, 'name', e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                       <div>
@@ -720,7 +721,7 @@ export default function BloodResultsPage() {
                           step="0.01"
                           value={marker.value}
                           onChange={(e) => updateMarker(marker.id, 'value', e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -731,7 +732,7 @@ export default function BloodResultsPage() {
                           type="text"
                           value={marker.unit}
                           onChange={(e) => updateMarker(marker.id, 'unit', e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                       <div>
@@ -741,7 +742,7 @@ export default function BloodResultsPage() {
                           step="0.01"
                           value={marker.reference_range_low}
                           onChange={(e) => updateMarker(marker.id, 'reference_range_low', e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                       <div>
@@ -751,7 +752,7 @@ export default function BloodResultsPage() {
                           step="0.01"
                           value={marker.reference_range_high}
                           onChange={(e) => updateMarker(marker.id, 'reference_range_high', e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                         />
                       </div>
                     </div>
@@ -978,39 +979,7 @@ export default function BloodResultsPage() {
         )}
       </main>
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#0f172a] border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </Link>
-            <Link 
-              href="/meals"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link 
-              href="/vitals"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <div className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="more" />
     </div>
   );
 }

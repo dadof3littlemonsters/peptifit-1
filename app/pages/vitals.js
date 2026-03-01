@@ -3,6 +3,7 @@ import { vitals, auth } from '../lib/api'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import BottomNav from '../components/BottomNav'
 import {
   ArrowLeftIcon,
   PlusIcon,
@@ -343,7 +344,7 @@ export default function VitalsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading vitals...</p>
@@ -353,32 +354,31 @@ export default function VitalsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white pb-24">
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-black border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-5 py-4">
-          <div className="flex items-center justify-between">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-full w-full max-w-lg items-center justify-between px-4">
             <div className="flex items-center gap-3">
-              <Link href="/" className="text-gray-400 hover:text-white transition-colors">
+              <Link href="/" className="flex h-11 w-11 items-center justify-center text-gray-400 transition-colors hover:text-white">
                 <ArrowLeftIcon className="h-6 w-6" />
               </Link>
               <h1 className="text-xl font-bold text-white">Vitals</h1>
             </div>
             <button
               onClick={() => setQuickMode(!quickMode)}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`flex h-11 w-11 items-center justify-center rounded-lg transition-colors ${
                 quickMode ? 'bg-cyan-500/20 text-cyan-400' : 'text-gray-400 hover:text-white'
               }`}
               title="Quick Entry Mode"
             >
               <MicrophoneIcon className="h-5 w-5" />
             </button>
-          </div>
         </div>
       </header>
 
-      {/* View Tabs */}
-      <div className="max-w-md mx-auto px-5 mt-4">
+      <main className="page-content mx-auto w-full max-w-lg px-4 pb-24 pt-4">
+        {/* View Tabs */}
+        <div className="mt-0">
         <div className="bg-gray-800 rounded-xl p-1 flex gap-1">
           {[
             { id: 'dashboard', label: 'Dashboard' },
@@ -398,20 +398,20 @@ export default function VitalsPage() {
             </button>
           ))}
         </div>
-      </div>
+        </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="max-w-md mx-auto px-5 mt-4">
+        {/* Error Message */}
+        {error && (
+          <div className="mt-4">
           <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-400 text-sm">
             {error}
           </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Dashboard View */}
-      {activeView === 'dashboard' && (
-        <div className="max-w-md mx-auto px-5 mt-6 space-y-6">
+        {/* Dashboard View */}
+        {activeView === 'dashboard' && (
+          <div className="mt-6 space-y-6">
           {/* Latest Readings Grid */}
           <div>
             <h2 className="text-lg font-semibold text-white mb-3">Latest Readings</h2>
@@ -567,12 +567,12 @@ export default function VitalsPage() {
               })}
             </div>
           </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Log Vital View */}
-      {activeView === 'log' && (
-        <div className="max-w-md mx-auto px-5 mt-6">
+        {/* Log Vital View */}
+        {activeView === 'log' && (
+          <div className="mt-6">
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Vital Type Selector */}
             <div>
@@ -621,7 +621,7 @@ export default function VitalsPage() {
                         min={field.min}
                         max={field.max}
                         step={field.step}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none text-center text-lg"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-center text-base text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none"
                         placeholder="--"
                         required={field.key !== 'pulse'}
                       />
@@ -637,7 +637,7 @@ export default function VitalsPage() {
                     min={VITAL_TYPES[selectedType]?.min}
                     max={VITAL_TYPES[selectedType]?.max}
                     step={VITAL_TYPES[selectedType]?.step}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-4 text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none text-center text-3xl font-bold"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-4 text-center text-3xl font-bold text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none"
                     placeholder="0"
                     required
                     autoFocus
@@ -673,7 +673,7 @@ export default function VitalsPage() {
                   type="datetime-local"
                   value={formData.measured_at}
                   onChange={(e) => setFormData({ ...formData, measured_at: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl pl-12 pr-4 py-3 text-white focus:border-cyan-500 focus:outline-none"
+                  className="w-full rounded-xl border border-gray-700 bg-gray-800 py-3 pl-12 pr-4 text-base text-white focus:border-cyan-500 focus:outline-none"
                   required
                 />
               </div>
@@ -688,7 +688,7 @@ export default function VitalsPage() {
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={3}
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none resize-none"
+                className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none resize-none"
                 placeholder="Add any notes..."
               />
             </div>
@@ -701,12 +701,12 @@ export default function VitalsPage() {
               Save Reading
             </button>
           </form>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* History View */}
-      {activeView === 'history' && (
-        <div className="max-w-md mx-auto px-5 mt-6 space-y-4">
+        {/* History View */}
+        {activeView === 'history' && (
+          <div className="mt-6 space-y-4">
           {/* Filters */}
           <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
             <div className="flex items-center gap-2 mb-3">
@@ -718,7 +718,7 @@ export default function VitalsPage() {
               <select
                 value={historyFilter.type}
                 onChange={(e) => setHistoryFilter({ ...historyFilter, type: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-cyan-500 focus:outline-none"
+                className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
               >
                 <option value="">All Types</option>
                 {Object.entries(VITAL_TYPES).map(([type, config]) => (
@@ -733,7 +733,7 @@ export default function VitalsPage() {
                     type="date"
                     value={historyFilter.start}
                     onChange={(e) => setHistoryFilter({ ...historyFilter, start: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-cyan-500 focus:outline-none"
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
                 <div>
@@ -742,7 +742,7 @@ export default function VitalsPage() {
                     type="date"
                     value={historyFilter.end}
                     onChange={(e) => setHistoryFilter({ ...historyFilter, end: e.target.value })}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-cyan-500 focus:outline-none"
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -816,50 +816,19 @@ export default function VitalsPage() {
               })
             )}
           </div>
-        </div>
-      )}
+          </div>
+        )}
+      </main>
 
       {/* Floating Quick Add Button */}
       <button
         onClick={() => setActiveView('log')}
-        className="fixed bottom-24 right-5 bg-cyan-500 hover:bg-cyan-400 text-black w-14 h-14 rounded-full shadow-lg shadow-cyan-500/30 flex items-center justify-center transition-colors z-20"
+        className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-500 text-black shadow-lg shadow-cyan-500/30 transition-colors hover:bg-cyan-400"
       >
         <PlusIcon className="w-7 h-7" />
       </button>
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#0f172a] border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </Link>
-            <Link 
-              href="/meals"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <div className="flex flex-col items-center py-2 text-cyan-400">
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </div>
-            <Link
-              href="/blood-results"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="more" />
     </div>
   )
 }

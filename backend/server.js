@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 const path = require('path');
+const createFoodRouter = require('./routes/food');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -140,6 +141,25 @@ db.serialize(() => {
     carbs REAL DEFAULT 0,
     fat REAL DEFAULT 0,
     logged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS food_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    food_id TEXT,
+    source TEXT,
+    name TEXT NOT NULL,
+    brand TEXT,
+    quantity_g REAL NOT NULL,
+    meal_type TEXT DEFAULT 'snack',
+    calories REAL,
+    protein REAL,
+    carbs REAL,
+    fat REAL,
+    fibre REAL,
+    logged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
@@ -363,6 +383,81 @@ app.post('/auth/login', (req, res) => {
     }
   );
 });
+
+app.delete('/auth/me', authenticateToken, (req, res) => {
+  const { password } = req.body || {};
+
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required to delete your account' });
+  }
+
+  db.get(
+    'SELECT id, username, password_hash FROM users WHERE id = ?',
+    [req.user.userId],
+    async (err, user) => {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to load account' });
+      }
+
+      if (!user) {
+        return res.status(404).json({ error: 'Account not found' });
+      }
+
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
+      if (!isValidPassword) {
+        return res.status(400).json({ error: 'Invalid password' });
+      }
+
+      const cleanupStatements = [
+        ['DELETE FROM food_logs WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM blood_results WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM meals WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM supplement_logs WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM supplements WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM vitals WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM user_peptide_configs WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM peptide_schedules WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM peptide_doses WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM users WHERE id = ?', [req.user.userId]]
+      ];
+
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        let failed = false;
+
+        cleanupStatements.forEach(([sql, params]) => {
+          db.run(sql, params, (statementError) => {
+            if (!statementError || failed) {
+              return;
+            }
+
+            failed = true;
+            db.run('ROLLBACK', () => {
+              res.status(500).json({ error: 'Failed to delete account' });
+            });
+          });
+        });
+
+        db.run('COMMIT', (commitError) => {
+          if (failed) {
+            return;
+          }
+
+          if (commitError) {
+            return db.run('ROLLBACK', () => {
+              res.status(500).json({ error: 'Failed to delete account' });
+            });
+          }
+
+          res.json({ message: 'Account deleted successfully', username: user.username });
+        });
+      });
+    }
+  );
+});
+
+app.use('/food', createFoodRouter({ db, authenticateToken, uuidv4 }));
 
 // Peptides routes
 app.get('/peptides', authenticateToken, (req, res) => {

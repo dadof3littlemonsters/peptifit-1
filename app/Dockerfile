@@ -10,7 +10,7 @@ WORKDIR /app
 # npm install layer whenever source files change but dependencies don't.
 COPY package.json package-lock.json ./
 
-RUN npm ci
+RUN npm install
 
 
 # ─── Stage 2: Build the application ──────────────────────────────────────────

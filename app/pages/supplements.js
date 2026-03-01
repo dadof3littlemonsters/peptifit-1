@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supplements } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import { 
   ArrowLeftIcon, 
   PlusIcon, 
@@ -397,7 +398,7 @@ export default function SupplementsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
           <p className="mt-4 text-gray-400">Loading supplements...</p>
@@ -407,51 +408,52 @@ export default function SupplementsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-[#0f172a] border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-5 py-4">
-          <div className="flex items-center justify-between">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-full w-full max-w-lg items-center px-4">
+          <div className="flex w-full items-center justify-between">
             <div className="flex items-center">
-              <Link href="/" className="mr-4">
+              <Link href="/" className="mr-3 flex h-11 w-11 items-center justify-center">
                 <ArrowLeftIcon className="h-6 w-6 text-gray-400 hover:text-white transition-colors" />
               </Link>
-              <h1 className="text-xl font-semibold text-white">Supplements</h1>
+              <h1 className="text-xl font-bold text-white">Supplements</h1>
             </div>
             <button
               onClick={handleAdd}
-              className="bg-cyan-500 hover:bg-cyan-400 text-black font-medium p-2 rounded-xl transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500 font-medium text-black transition-colors hover:bg-cyan-400"
             >
               <PlusIcon className="h-5 w-5" />
             </button>
           </div>
-          
-          {/* Tab Navigation */}
-          <div className="flex gap-1 mt-4 bg-gray-800/50 p-1 rounded-xl">
-            {[
-              { id: 'today', label: 'Today', icon: CalendarIcon },
-              { id: 'inventory', label: 'Inventory', icon: BeakerIcon },
-              { id: 'history', label: 'History', icon: ChartBarIcon }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-cyan-500 text-black' 
-                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-                }`}
-              >
-                <tab.icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
 
+      <div className="flex-shrink-0 border-b border-gray-800 bg-gray-900 px-4 py-3">
+        <div className="mx-auto flex max-w-lg gap-1 rounded-xl bg-gray-800/50 p-1">
+          {[
+            { id: 'today', label: 'Today', icon: CalendarIcon },
+            { id: 'inventory', label: 'Inventory', icon: BeakerIcon },
+            { id: 'history', label: 'History', icon: ChartBarIcon }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-2 px-3 text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? 'bg-cyan-500 text-black'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+              }`}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Main Content */}
-      <main className="max-w-md mx-auto px-5 py-5 pb-24">
+      <main className="page-content mx-auto w-full max-w-lg px-4 py-4 pb-24">
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
             {error}
@@ -827,11 +829,11 @@ export default function SupplementsPage() {
       {/* Add/Edit Form Bottom Sheet */}
       {showForm && (
         <div 
-          className="fixed inset-0 bg-black/80 z-50 flex items-end"
+          className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm"
           onClick={() => setShowForm(false)}
         >
           <div 
-            className="w-full max-w-md mx-auto bg-[#0f172a] rounded-t-3xl border-t border-gray-700 max-h-[90vh] overflow-y-auto"
+            className="mx-auto max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-gray-700 bg-gray-900"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Handle */}
@@ -846,7 +848,7 @@ export default function SupplementsPage() {
                 </h2>
                 <button 
                   onClick={() => setShowForm(false)}
-                  className="p-2 text-gray-400 hover:text-white"
+                  className="flex h-11 w-11 items-center justify-center text-gray-400 hover:text-white"
                 >
                   <XMarkIcon className="h-6 w-6" />
                 </button>
@@ -861,7 +863,7 @@ export default function SupplementsPage() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="e.g., Creatine Monohydrate"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     required
                   />
                 </div>
@@ -874,7 +876,7 @@ export default function SupplementsPage() {
                     value={formData.brand}
                     onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
                     placeholder="e.g., Optimum Nutrition"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
                 
@@ -888,7 +890,7 @@ export default function SupplementsPage() {
                       value={formData.dose_amount}
                       onChange={(e) => setFormData({ ...formData, dose_amount: e.target.value })}
                       placeholder="5"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     />
                   </div>
                   <div>
@@ -896,7 +898,7 @@ export default function SupplementsPage() {
                     <select
                       value={formData.dose_unit}
                       onChange={(e) => setFormData({ ...formData, dose_unit: e.target.value })}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors appearance-none"
+                      className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
                     >
                       <option value="capsules">Capsules</option>
                       <option value="capsule">Capsule</option>
@@ -924,7 +926,7 @@ export default function SupplementsPage() {
                         value={formData.servings_per_container}
                         onChange={(e) => setFormData({ ...formData, servings_per_container: e.target.value })}
                         placeholder="30"
-                        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                       />
                     </div>
                     <div>
@@ -934,7 +936,7 @@ export default function SupplementsPage() {
                         value={formData.remaining_servings}
                         onChange={(e) => setFormData({ ...formData, remaining_servings: e.target.value })}
                         placeholder="25"
-                        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -946,7 +948,7 @@ export default function SupplementsPage() {
                       value={formData.reorder_threshold}
                       onChange={(e) => setFormData({ ...formData, reorder_threshold: e.target.value })}
                       placeholder="7"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                      className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -961,7 +963,7 @@ export default function SupplementsPage() {
                       <select
                         value={formData.frequency}
                         onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors appearance-none"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
                       >
                         {FREQUENCY_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -984,7 +986,7 @@ export default function SupplementsPage() {
                                   : [...formData.custom_days, index]
                                 setFormData({ ...formData, custom_days: days })
                               }}
-                              className={`py-2 rounded-lg text-xs font-medium transition-colors ${
+                              className={`min-h-11 rounded-lg py-2 text-xs font-medium transition-colors ${
                                 formData.custom_days.includes(index)
                                   ? 'bg-cyan-500 text-black'
                                   : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
@@ -1002,7 +1004,7 @@ export default function SupplementsPage() {
                       <select
                         value={formData.time_of_day}
                         onChange={(e) => setFormData({ ...formData, time_of_day: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors appearance-none"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
                       >
                         {TIME_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1020,7 +1022,7 @@ export default function SupplementsPage() {
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="Any additional notes..."
                     rows={3}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors resize-none"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors resize-none focus:border-cyan-500 focus:outline-none"
                   />
                 </div>
                 
@@ -1037,39 +1039,7 @@ export default function SupplementsPage() {
         </div>
       )}
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-[#0f172a] border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <Link href="/peptides" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </Link>
-            <Link 
-              href="/meals"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link 
-              href="/vitals"
-              className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors"
-            >
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="more" />
     </div>
   )
 }

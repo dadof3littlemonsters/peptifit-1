@@ -1,5 +1,33 @@
 import axios from 'axios';
 
+const TOKEN_KEYS = ['peptifit_token', 'token'];
+const USER_STORAGE_KEY = 'peptifit_user';
+
+const getStoredToken = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return TOKEN_KEYS.map((key) => localStorage.getItem(key)).find(Boolean) || null;
+};
+
+const storeToken = (token) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  TOKEN_KEYS.forEach((key) => localStorage.setItem(key, token));
+};
+
+const clearStoredAuth = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  TOKEN_KEYS.forEach((key) => localStorage.removeItem(key));
+  localStorage.removeItem(USER_STORAGE_KEY);
+};
+
 // API base URL - points directly to backend
 const API_BASE_URL = typeof window !== 'undefined' 
   ? (process.env.NEXT_PUBLIC_API_URL || 'https://trax.delboysden.uk/api')
@@ -15,11 +43,9 @@ const api = axios.create({
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('peptifit_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
@@ -30,8 +56,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('peptifit_token');
-        localStorage.removeItem('peptifit_user');
+        clearStoredAuth();
         window.location.href = '/login';
       }
     }
@@ -44,8 +69,8 @@ export const auth = {
   login: async (username, password) => {
     const response = await api.post('/auth/login', { username, password });
     if (response.data.token && typeof window !== 'undefined') {
-      localStorage.setItem('peptifit_token', response.data.token);
-      localStorage.setItem('peptifit_user', JSON.stringify(response.data.user));
+      storeToken(response.data.token);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.data.user));
     }
     return response.data;
   },
@@ -53,29 +78,41 @@ export const auth = {
   register: async (username, email, password) => {
     const response = await api.post('/auth/register', { username, email, password });
     if (response.data.token && typeof window !== 'undefined') {
-      localStorage.setItem('peptifit_token', response.data.token);
-      localStorage.setItem('peptifit_user', JSON.stringify(response.data.user));
+      storeToken(response.data.token);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.data.user));
     }
     return response.data;
   },
 
   logout: () => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('peptifit_token');
-      localStorage.removeItem('peptifit_user');
+      clearStoredAuth();
       window.location.href = '/login';
     }
   },
 
+  deleteAccount: async (password) => {
+    const response = await api.delete('/auth/me', {
+      data: { password }
+    });
+
+    if (typeof window !== 'undefined') {
+      clearStoredAuth();
+      window.location.href = '/login';
+    }
+
+    return response.data;
+  },
+
   getCurrentUser: () => {
     if (typeof window === 'undefined') return null;
-    const user = localStorage.getItem('peptifit_user');
+    const user = localStorage.getItem(USER_STORAGE_KEY);
     return user ? JSON.parse(user) : null;
   },
 
   isAuthenticated: () => {
     if (typeof window === 'undefined') return false;
-    return !!localStorage.getItem('peptifit_token');
+    return !!getStoredToken();
   },
 };
 
@@ -313,6 +350,37 @@ export const meals = {
       source_date: sourceDate,
       target_date: targetDate
     });
+    return response.data;
+  }
+};
+
+export const food = {
+  search: async (query) => {
+    const response = await api.get('/food/search', {
+      params: { query }
+    });
+    return response.data;
+  },
+
+  lookupBarcode: async (code) => {
+    const response = await api.get(`/food/barcode/${code}`);
+    return response.data;
+  },
+
+  log: async (foodData) => {
+    const response = await api.post('/food/log', foodData);
+    return response.data;
+  },
+
+  getLogs: async (date) => {
+    const response = await api.get('/food/log', {
+      params: date ? { date } : {}
+    });
+    return response.data;
+  },
+
+  deleteLog: async (id) => {
+    const response = await api.delete(`/food/log/${id}`);
     return response.data;
   }
 };

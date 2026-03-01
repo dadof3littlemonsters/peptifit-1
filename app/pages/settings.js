@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { auth } from '../lib/api'
 import Link from 'next/link'
+import BottomNav from '../components/BottomNav'
 import {
   ArrowLeftIcon,
   ArrowRightOnRectangleIcon,
@@ -53,6 +54,9 @@ export default function Settings({ user }) {
 
   // ── UI state ──
   const [saved, setSaved] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
 
   // ── Load from localStorage on mount ──────────────────────────────────────
   useEffect(() => {
@@ -94,6 +98,26 @@ export default function Settings({ user }) {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      setDeleteError('Enter your password to delete your account')
+      return
+    }
+
+    if (!window.confirm('Delete your account and all associated data? This cannot be undone.')) {
+      return
+    }
+
+    try {
+      setDeletingAccount(true)
+      setDeleteError('')
+      await auth.deleteAccount(deletePassword)
+    } catch (err) {
+      setDeleteError(err.response?.data?.error || 'Failed to delete account')
+      setDeletingAccount(false)
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const initials = user?.username
     ? user.username.slice(0, 2).toUpperCase()
@@ -104,11 +128,11 @@ export default function Settings({ user }) {
     : 'stone'
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="bg-black border-b border-gray-800 sticky top-0 z-10">
-        <div className="max-w-md mx-auto px-5 py-4 flex items-center gap-3">
+      <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="mx-auto flex h-full w-full max-w-lg items-center gap-3 px-4">
           <Link href="/" className="p-1 -ml-1 text-gray-400 hover:text-white transition-colors">
             <ArrowLeftIcon className="h-6 w-6" />
           </Link>
@@ -116,7 +140,7 @@ export default function Settings({ user }) {
         </div>
       </header>
 
-      <div className="max-w-md mx-auto px-4 py-6 pb-28 space-y-6">
+      <main className="page-content mx-auto w-full max-w-lg px-4 py-6 pb-28 space-y-6">
 
         {/* ── 1. Account ─────────────────────────────────────────────────── */}
         <section>
@@ -235,7 +259,7 @@ export default function Settings({ user }) {
                     placeholder="175"
                     min="100"
                     max="250"
-                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-base text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
                   />
                   <span className="text-gray-400 text-sm w-8">cm</span>
                 </div>
@@ -248,7 +272,7 @@ export default function Settings({ user }) {
                     placeholder="5"
                     min="3"
                     max="8"
-                    className="w-20 bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center"
+                    className="w-20 bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-base text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center"
                   />
                   <span className="text-gray-400 text-sm">ft</span>
                   <input
@@ -258,7 +282,7 @@ export default function Settings({ user }) {
                     placeholder="10"
                     min="0"
                     max="11"
-                    className="w-20 bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center"
+                    className="w-20 bg-gray-900 border border-gray-700 rounded-xl px-3 py-3 text-base text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors text-center"
                   />
                   <span className="text-gray-400 text-sm">in</span>
                 </div>
@@ -280,7 +304,7 @@ export default function Settings({ user }) {
                   min="20"
                   max="500"
                   step="0.1"
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-base text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
                 />
                 <span className="text-gray-400 text-sm w-10">{targetWeightLabel}</span>
               </div>
@@ -308,7 +332,7 @@ export default function Settings({ user }) {
                   min="500"
                   max="10000"
                   step="50"
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-base text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 />
                 <span className="text-gray-400 text-sm w-10">kcal</span>
               </div>
@@ -344,7 +368,7 @@ export default function Settings({ user }) {
                   placeholder="e.g. 180"
                   min="0"
                   max="500"
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-base text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
                 />
                 <span className="text-gray-400 text-sm w-4">g</span>
               </div>
@@ -421,6 +445,38 @@ export default function Settings({ user }) {
           </div>
         </section>
 
+        <section>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-1">
+            Danger Zone
+          </h2>
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+            <div className="mb-3">
+              <div className="text-sm font-medium text-red-300">Delete Account</div>
+              <p className="mt-1 text-xs text-gray-400">
+                Permanently removes your account and all stored doses, meals, vitals, supplements, food logs, and blood results.
+              </p>
+            </div>
+            <input
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Confirm with your password"
+              className="w-full rounded-xl border border-red-500/20 bg-gray-900 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-red-400 focus:outline-none"
+            />
+            {deleteError && (
+              <p className="mt-2 text-xs text-red-300">{deleteError}</p>
+            )}
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="mt-3 flex min-h-[48px] w-full items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deletingAccount ? 'Deleting Account...' : 'Delete Account'}
+            </button>
+          </div>
+        </section>
+
         {/* ── Save button ────────────────────────────────────────────────── */}
         <button
           onClick={handleSave}
@@ -438,35 +494,10 @@ export default function Settings({ user }) {
           PeptiFit · trax.delboysden.uk
         </div>
 
-      </div>
+      </main>
 
       {/* ── Bottom Navigation ──────────────────────────────────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800">
-        <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-5 py-2">
-            <Link href="/" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🏠</span>
-              <span className="text-xs">Dashboard</span>
-            </Link>
-            <Link href="/log-dose" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">💉</span>
-              <span className="text-xs">Peptides</span>
-            </Link>
-            <Link href="/meals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🍽️</span>
-              <span className="text-xs">Meals</span>
-            </Link>
-            <Link href="/vitals" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">📊</span>
-              <span className="text-xs">Vitals</span>
-            </Link>
-            <Link href="/blood-results" className="flex flex-col items-center py-2 text-gray-400 hover:text-white transition-colors">
-              <span className="text-xl mb-1">🧪</span>
-              <span className="text-xs">Blood Results</span>
-            </Link>
-          </div>
-        </div>
-      </div>
+      <BottomNav active="more" />
 
     </div>
   )

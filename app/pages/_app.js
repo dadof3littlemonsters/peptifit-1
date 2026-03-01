@@ -1,4 +1,6 @@
 import '../styles/globals.css'
+import '../styles/mobile.css'
+import Head from 'next/head'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { auth } from '../lib/api'
@@ -39,14 +41,34 @@ export default function App({ Component, pageProps }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading PeptiFit...</p>
+      <>
+        <Head>
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+          />
+          <meta name="mobile-web-app-capable" content="yes" />
+        </Head>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading PeptiFit...</p>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
-  return <Component {...pageProps} user={user} setUser={setUser} />
+  return (
+    <>
+      <Head>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+        />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </Head>
+      <Component {...pageProps} user={user} setUser={setUser} />
+    </>
+  )
 }

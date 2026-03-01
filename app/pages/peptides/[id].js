@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { peptides, doses } from '../../lib/api'
 import Link from 'next/link'
+import BottomNav from '../../components/BottomNav'
 import { 
   ArrowLeftIcon, 
   BeakerIcon, 
@@ -81,12 +82,11 @@ export default function PeptideDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-md mx-auto px-4 py-4">
+    <div className="flex h-screen flex-col bg-gray-50">
+      <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-200 bg-white shadow-sm">
+        <div className="mx-auto w-full max-w-md px-4">
           <div className="flex items-center">
-            <Link href="/peptides" className="mr-4">
+            <Link href="/peptides" className="mr-3 flex h-11 w-11 items-center justify-center">
               <ArrowLeftIcon className="h-6 w-6 text-gray-600" />
             </Link>
             <h1 className="text-xl font-semibold text-gray-900">{peptide.name}</h1>
@@ -94,8 +94,7 @@ export default function PeptideDetailPage() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-md mx-auto px-4 py-6 space-y-6">
+      <main className="page-content mx-auto max-w-md px-4 py-6 space-y-6">
         {/* Peptide Information */}
         <div className="card">
           <div className="flex items-start">
@@ -197,9 +196,9 @@ export default function PeptideDetailPage() {
           </div>
         </div>
 
-        {/* Add padding for any fixed footer */}
-        <div className="h-20"></div>
       </main>
+
+      <BottomNav active="peptides" />
     </div>
   )
 }
