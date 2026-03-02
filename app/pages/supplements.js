@@ -408,7 +408,7 @@ export default function SupplementsPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-full w-full max-w-lg items-center px-4">
@@ -453,7 +453,7 @@ export default function SupplementsPage() {
       </div>
 
       {/* Main Content */}
-      <main className="page-content mx-auto w-full max-w-lg px-4 py-4 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
             {error}
@@ -829,11 +829,11 @@ export default function SupplementsPage() {
       {/* Add/Edit Form Bottom Sheet */}
       {showForm && (
         <div 
-          className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end bg-black/60 px-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
           onClick={() => setShowForm(false)}
         >
           <div 
-            className="mx-auto max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-gray-700 bg-gray-900"
+            className="mx-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-gray-700 bg-gray-900 sm:max-h-[85dvh] sm:rounded-3xl sm:border"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Handle */}
@@ -841,7 +841,7 @@ export default function SupplementsPage() {
               <div className="w-12 h-1.5 bg-gray-600 rounded-full"></div>
             </div>
             
-            <div className="p-5 pb-8">
+            <div className="p-5 pb-24">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white">
                   {editingSupplement ? 'Edit Supplement' : 'Add Supplement'}

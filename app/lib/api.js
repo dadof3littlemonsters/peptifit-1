@@ -127,6 +127,21 @@ export const peptides = {
     const response = await api.get(`/peptides/${id}`);
     return response.data;
   },
+
+  create: async (peptideData) => {
+    const response = await api.post('/peptides', peptideData);
+    return response.data;
+  },
+
+  update: async (id, peptideData) => {
+    const response = await api.put(`/peptides/${id}`, peptideData);
+    return response.data;
+  },
+
+  delete: async (id) => {
+    const response = await api.delete(`/peptides/${id}`);
+    return response.data;
+  },
 };
 
 // Dose functions

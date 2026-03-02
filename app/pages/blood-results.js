@@ -590,7 +590,7 @@ export default function BloodResultsPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-full w-full max-w-lg items-center justify-between px-4">
           <div className="flex items-center gap-3">
@@ -634,7 +634,7 @@ export default function BloodResultsPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-lg px-4 py-4 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {error && (
           <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}

@@ -13,7 +13,7 @@ const MORE_ITEMS = [
 
 export default function MorePage() {
   return (
-    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="flex items-center px-4 h-14 flex-shrink-0 bg-gray-900 border-b border-gray-800">
         <div>
           <h1 className="text-xl font-bold text-white">More</h1>
@@ -21,7 +21,7 @@ export default function MorePage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto pb-20 px-4 py-4">
+      <main className="page-content flex-1 min-h-0 overflow-y-auto px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         <div className="space-y-3">
           {MORE_ITEMS.map((item) => (
             <Link

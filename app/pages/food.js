@@ -336,7 +336,7 @@ export default function FoodPage() {
   }, [groupedLogs]);
 
   return (
-    <div className="flex h-screen flex-col bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex w-full max-w-md items-center justify-between px-4">
           <div>
@@ -349,7 +349,7 @@ export default function FoodPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-md px-4 pb-24 pt-3">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-md px-4 pt-3 pb-[calc(196px+env(safe-area-inset-bottom))]">
         <div className="sticky top-0 z-20 -mx-4 border-b border-gray-800 bg-gray-900 px-4 pb-3">
           <div className="grid grid-cols-4 gap-2">
             {MEAL_TYPES.map((meal) => (

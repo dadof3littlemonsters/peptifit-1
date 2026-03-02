@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { peptides, peptideConfigs } from '../lib/api'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { 
   ArrowLeftIcon, 
   PlusIcon,
+  PencilIcon,
   XMarkIcon,
   CheckIcon,
   BeakerIcon,
@@ -15,6 +17,7 @@ import {
 } from '@heroicons/react/24/outline'
 
 export default function PeptideConfigurationWizard() {
+  const router = useRouter()
   const [availablePeptides, setAvailablePeptides] = useState([])
   const [userStack, setUserStack] = useState([])
   const [loading, setLoading] = useState(true)
@@ -24,6 +27,17 @@ export default function PeptideConfigurationWizard() {
   const [currentStep, setCurrentStep] = useState('selection') // selection, configure, review
   const [configuringPeptide, setConfiguringPeptide] = useState(null)
   const [editingConfigId, setEditingConfigId] = useState(null)
+  const [showLibraryForm, setShowLibraryForm] = useState(false)
+  const [librarySaving, setLibrarySaving] = useState(false)
+  const [editingLibraryPeptideId, setEditingLibraryPeptideId] = useState(null)
+  const [libraryForm, setLibraryForm] = useState({
+    name: '',
+    description: '',
+    dosage_range: '',
+    frequency: '',
+    administration_route: '',
+    storage_requirements: ''
+  })
   const [scheduleConfig, setScheduleConfig] = useState({
     frequency: 'weekly',
     customDays: [],
@@ -36,6 +50,19 @@ export default function PeptideConfigurationWizard() {
     loadPeptides()
     loadUserStack()
   }, [])
+
+  useEffect(() => {
+    if (!router.isReady || userStack.length === 0) return
+
+    const editId = typeof router.query.edit === 'string' ? router.query.edit : ''
+    if (!editId) return
+
+    const match = userStack.find((item) => item.id === editId)
+    if (!match) return
+
+    editStackItem(match)
+    router.replace('/configure-peptides', undefined, { shallow: true })
+  }, [router, userStack])
 
   // Clear messages after 5 seconds
   useEffect(() => {
@@ -58,6 +85,104 @@ export default function PeptideConfigurationWizard() {
       setError('Failed to load available peptides. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const resetLibraryForm = () => {
+    setLibraryForm({
+      name: '',
+      description: '',
+      dosage_range: '',
+      frequency: '',
+      administration_route: '',
+      storage_requirements: ''
+    })
+    setEditingLibraryPeptideId(null)
+  }
+
+  const openAddLibraryForm = () => {
+    resetLibraryForm()
+    setShowLibraryForm(true)
+  }
+
+  const openEditLibraryForm = (peptide) => {
+    setLibraryForm({
+      name: peptide.name || '',
+      description: peptide.description || '',
+      dosage_range: peptide.dosage_range || '',
+      frequency: peptide.frequency || '',
+      administration_route: peptide.administration_route || '',
+      storage_requirements: peptide.storage_requirements || ''
+    })
+    setEditingLibraryPeptideId(peptide.id)
+    setShowLibraryForm(true)
+  }
+
+  const closeLibraryForm = () => {
+    setShowLibraryForm(false)
+    resetLibraryForm()
+  }
+
+  const handleLibraryFieldChange = (event) => {
+    const { name, value } = event.target
+    setLibraryForm(prev => ({ ...prev, [name]: value }))
+  }
+
+  const saveLibraryPeptide = async (event) => {
+    event.preventDefault()
+
+    if (!libraryForm.name.trim()) {
+      setError('Please enter a peptide name')
+      return
+    }
+
+    try {
+      setLibrarySaving(true)
+      setError(null)
+
+      const payload = {
+        name: libraryForm.name.trim(),
+        description: libraryForm.description.trim(),
+        dosage_range: libraryForm.dosage_range.trim(),
+        frequency: libraryForm.frequency.trim(),
+        administration_route: libraryForm.administration_route.trim(),
+        storage_requirements: libraryForm.storage_requirements.trim()
+      }
+
+      if (editingLibraryPeptideId) {
+        await peptides.update(editingLibraryPeptideId, payload)
+        setSuccessMessage(`${payload.name} updated in the peptide library`)
+      } else {
+        await peptides.create(payload)
+        setSuccessMessage(`${payload.name} added to the peptide library`)
+      }
+
+      await loadPeptides()
+      closeLibraryForm()
+    } catch (err) {
+      console.error('Error saving peptide library entry:', err)
+      setError(err.response?.data?.error || 'Failed to save peptide library entry. Please try again.')
+    } finally {
+      setLibrarySaving(false)
+    }
+  }
+
+  const deleteLibraryPeptide = async (peptide) => {
+    if (!confirm(`Delete ${peptide.name} from the peptide library?`)) {
+      return
+    }
+
+    try {
+      setSaving(true)
+      setError(null)
+      await peptides.delete(peptide.id)
+      setAvailablePeptides(prev => prev.filter(item => item.id !== peptide.id))
+      setSuccessMessage(`${peptide.name} deleted from the peptide library`)
+    } catch (err) {
+      console.error('Error deleting peptide library entry:', err)
+      setError(err.response?.data?.error || 'Failed to delete peptide from the library.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -128,7 +253,7 @@ export default function PeptideConfigurationWizard() {
     setCurrentStep('configure')
     setScheduleConfig({
       frequency: peptide.name.toLowerCase().includes('tirzepatide') || peptide.name.toLowerCase().includes('retatrutide') ? 'weekly' : 'daily',
-      customDays: [],
+      customDays: peptide.name.toLowerCase().includes('tirzepatide') || peptide.name.toLowerCase().includes('retatrutide') ? [0] : [],
       doses: [{ amount: '', unit: 'mg', time: '08:00' }],
       notes: '',
       isActive: true
@@ -207,11 +332,17 @@ export default function PeptideConfigurationWizard() {
       setError(null)
 
       // Build flat config data to match backend API expectations
+      const normalizedCustomDays = scheduleConfig.frequency === 'weekly'
+        ? [scheduleConfig.customDays?.[0] ?? 0]
+        : scheduleConfig.frequency === 'custom-weekly'
+          ? (scheduleConfig.customDays || []).sort()
+          : scheduleConfig.customDays || []
+
       const configData = {
         peptide_id: configuringPeptide.id,
         frequency: scheduleConfig.frequency,
         doses: scheduleConfig.doses,
-        custom_days: scheduleConfig.customDays || [],
+        custom_days: normalizedCustomDays,
         every_x_days: scheduleConfig.everyXDays || null,
         cycle_config: scheduleConfig.frequency === 'cycling' && scheduleConfig.cycleOnWeeks && scheduleConfig.cycleOffWeeks
           ? { days_on: scheduleConfig.cycleOnWeeks * 7, days_off: scheduleConfig.cycleOffWeeks * 7 }
@@ -230,7 +361,7 @@ export default function PeptideConfigurationWizard() {
                 ...item,
                 schedule: {
                   frequency: scheduleConfig.frequency,
-                  customDays: scheduleConfig.customDays || [],
+                  customDays: normalizedCustomDays,
                   doses: scheduleConfig.doses,
                   everyXDays: scheduleConfig.everyXDays,
                   cycleOnWeeks: scheduleConfig.cycleOnWeeks,
@@ -253,7 +384,7 @@ export default function PeptideConfigurationWizard() {
           peptide: configuringPeptide,
           schedule: {
             frequency: scheduleConfig.frequency,
-            customDays: scheduleConfig.customDays || [],
+            customDays: normalizedCustomDays,
             doses: scheduleConfig.doses,
             everyXDays: scheduleConfig.everyXDays,
             cycleOnWeeks: scheduleConfig.cycleOnWeeks,
@@ -780,7 +911,7 @@ export default function PeptideConfigurationWizard() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-black text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-black text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
         <div className="mx-auto flex h-full max-w-md items-center px-4">
@@ -799,7 +930,7 @@ export default function PeptideConfigurationWizard() {
         </div>
       </header>
 
-      <div className="page-content mx-auto max-w-md px-4 py-4 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto max-w-md px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {/* Error Message */}
         {error && (
           <div className="mb-4 bg-red-900/30 border border-red-700 rounded-xl p-4 flex items-start gap-3">
@@ -877,9 +1008,19 @@ export default function PeptideConfigurationWizard() {
 
             {/* Available Peptides */}
             <div>
-              <h2 className="text-lg font-semibold text-white mb-4">
-                {userStack.length > 0 ? 'Add More Peptides' : 'Select Peptides for Your Stack'}
-              </h2>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-white">
+                  {userStack.length > 0 ? 'Add More Peptides' : 'Select Peptides for Your Stack'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={openAddLibraryForm}
+                  className="flex items-center gap-2 rounded-lg bg-gray-700 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-600"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                  New Library Peptide
+                </button>
+              </div>
               <div className="space-y-3">
                 {availablePeptides.map((peptide) => {
                   const existingConfig = getStackItemForPeptide(peptide.id)
@@ -901,22 +1042,41 @@ export default function PeptideConfigurationWizard() {
                           </div>
                         </div>
                         <div className="ml-4">
-                          {existingConfig ? (
+                          <div className="flex items-center gap-3">
+                            {existingConfig ? (
+                              <button
+                                onClick={() => editStackItem(existingConfig)}
+                                className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
+                              >
+                                <CheckIcon className="h-4 w-4" />
+                                Edit
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => addToStack(peptide)}
+                                className="min-h-11 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-cyan-400"
+                              >
+                                Add
+                              </button>
+                            )}
                             <button
-                              onClick={() => editStackItem(existingConfig)}
-                              className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
+                              type="button"
+                              onClick={() => openEditLibraryForm(peptide)}
+                              className="text-gray-400 transition-colors hover:text-cyan-400"
+                              title="Edit peptide library entry"
                             >
-                              <CheckIcon className="h-4 w-4" />
-                              Edit
+                              <PencilIcon className="h-4 w-4" />
                             </button>
-                          ) : (
                             <button
-                              onClick={() => addToStack(peptide)}
-                              className="min-h-11 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-cyan-400"
+                              type="button"
+                              onClick={() => deleteLibraryPeptide(peptide)}
+                              className="text-gray-500 transition-colors hover:text-red-400"
+                              title="Delete peptide library entry"
+                              disabled={saving}
                             >
-                              Add
+                              <TrashIcon className="h-4 w-4" />
                             </button>
-                          )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1021,7 +1181,134 @@ export default function PeptideConfigurationWizard() {
             </div>
           </div>
         )}
-      </div>
+      </main>
+
+      {showLibraryForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          onClick={closeLibraryForm}
+        >
+          <div
+            className="my-auto w-full max-w-lg rounded-2xl border border-gray-700 bg-gray-800 p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  {editingLibraryPeptideId ? 'Edit Library Peptide' : 'Add Library Peptide'}
+                </h2>
+                <p className="text-sm text-gray-400">
+                  Extend the saved peptide library used across stack setup and dose logging.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeLibraryForm}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={saveLibraryPeptide} className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-300">
+                  Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={libraryForm.name}
+                  onChange={handleLibraryFieldChange}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white"
+                  placeholder="e.g. AOD-9604"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-300">Description</label>
+                <textarea
+                  name="description"
+                  value={libraryForm.description}
+                  onChange={handleLibraryFieldChange}
+                  rows={3}
+                  className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white resize-none"
+                  placeholder="Short description or intended use"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">Typical Dose</label>
+                  <input
+                    type="text"
+                    name="dosage_range"
+                    value={libraryForm.dosage_range}
+                    onChange={handleLibraryFieldChange}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white"
+                    placeholder="e.g. 250mcg - 500mcg"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">Typical Frequency</label>
+                  <input
+                    type="text"
+                    name="frequency"
+                    value={libraryForm.frequency}
+                    onChange={handleLibraryFieldChange}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white"
+                    placeholder="e.g. Daily"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">Administration Route</label>
+                  <input
+                    type="text"
+                    name="administration_route"
+                    value={libraryForm.administration_route}
+                    onChange={handleLibraryFieldChange}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white"
+                    placeholder="e.g. Subcutaneous"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-300">Storage</label>
+                  <input
+                    type="text"
+                    name="storage_requirements"
+                    value={libraryForm.storage_requirements}
+                    onChange={handleLibraryFieldChange}
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-3 text-base text-white"
+                    placeholder="e.g. Refrigerated"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeLibraryForm}
+                  className="flex-1 rounded-xl bg-gray-700 px-4 py-3 font-medium text-white transition-colors hover:bg-gray-600"
+                  disabled={librarySaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 rounded-xl bg-cyan-500 px-4 py-3 font-medium text-black transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={librarySaving || !libraryForm.name.trim()}
+                >
+                  {librarySaving ? 'Saving...' : editingLibraryPeptideId ? 'Update Peptide' : 'Add Peptide'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <BottomNav active="peptides" />
     </div>

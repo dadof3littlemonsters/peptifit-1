@@ -48,6 +48,7 @@ db.serialize(() => {
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     peptide_id TEXT NOT NULL,
+    config_id TEXT,
     dose_amount REAL NOT NULL,
     dose_unit TEXT NOT NULL,
     administration_time DATETIME NOT NULL,
@@ -295,6 +296,21 @@ db.serialize(() => {
       console.log('Complete peptide library inserted');
     }
   });
+
+  db.all(`PRAGMA table_info(peptide_doses)`, (err, columns) => {
+    if (err) {
+      console.error('Error inspecting peptide_doses schema:', err);
+      return;
+    }
+
+    if (!columns.some((column) => column.name === 'config_id')) {
+      db.run(`ALTER TABLE peptide_doses ADD COLUMN config_id TEXT`, (alterErr) => {
+        if (alterErr) {
+          console.error('Error adding config_id to peptide_doses:', alterErr);
+        }
+      });
+    }
+  });
 });
 
 // Authentication middleware
@@ -469,7 +485,62 @@ app.get('/peptides', authenticateToken, (req, res) => {
   });
 });
 
-app.get('/peptides/:id', authenticateToken, (req, res) => {
+app.post('/peptides', authenticateToken, (req, res) => {
+  const {
+    name,
+    description,
+    dosage_range,
+    frequency,
+    administration_route,
+    storage_requirements
+  } = req.body || {};
+
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'Peptide name is required' });
+  }
+
+  const peptideId = uuidv4();
+  const now = new Date().toISOString();
+
+  db.run(
+    `INSERT INTO peptides
+     (id, name, description, dosage_range, frequency, administration_route, storage_requirements, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      peptideId,
+      String(name).trim(),
+      description ? String(description).trim() : '',
+      dosage_range ? String(dosage_range).trim() : '',
+      frequency ? String(frequency).trim() : '',
+      administration_route ? String(administration_route).trim() : '',
+      storage_requirements ? String(storage_requirements).trim() : '',
+      now
+    ],
+    function(err) {
+      if (err) {
+        console.error('Error creating peptide:', err);
+        return res.status(500).json({ error: 'Failed to create peptide' });
+      }
+
+      res.status(201).json({
+        id: peptideId,
+        name: String(name).trim(),
+        description: description ? String(description).trim() : '',
+        dosage_range: dosage_range ? String(dosage_range).trim() : '',
+        frequency: frequency ? String(frequency).trim() : '',
+        administration_route: administration_route ? String(administration_route).trim() : '',
+        storage_requirements: storage_requirements ? String(storage_requirements).trim() : '',
+        created_at: now
+      });
+    }
+  );
+});
+
+app.get('/peptides/:id', authenticateToken, (req, res, next) => {
+  if (req.params.id === 'configs') {
+    return next();
+  }
+
   db.get('SELECT * FROM peptides WHERE id = ?', [req.params.id], (err, row) => {
     if (err) {
       return res.status(500).json({ error: 'Failed to fetch peptide' });
@@ -481,23 +552,123 @@ app.get('/peptides/:id', authenticateToken, (req, res) => {
   });
 });
 
+app.put('/peptides/:id', authenticateToken, (req, res) => {
+  const {
+    name,
+    description,
+    dosage_range,
+    frequency,
+    administration_route,
+    storage_requirements
+  } = req.body || {};
+
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'Peptide name is required' });
+  }
+
+  db.run(
+    `UPDATE peptides
+     SET name = ?, description = ?, dosage_range = ?, frequency = ?, administration_route = ?, storage_requirements = ?
+     WHERE id = ?`,
+    [
+      String(name).trim(),
+      description ? String(description).trim() : '',
+      dosage_range ? String(dosage_range).trim() : '',
+      frequency ? String(frequency).trim() : '',
+      administration_route ? String(administration_route).trim() : '',
+      storage_requirements ? String(storage_requirements).trim() : '',
+      req.params.id
+    ],
+    function(err) {
+      if (err) {
+        console.error('Error updating peptide:', err);
+        return res.status(500).json({ error: 'Failed to update peptide' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Peptide not found' });
+      }
+      res.json({ message: 'Peptide updated successfully' });
+    }
+  );
+});
+
+app.delete('/peptides/:id', authenticateToken, (req, res) => {
+  db.get(
+    `SELECT
+       (SELECT COUNT(*) FROM user_peptide_configs WHERE peptide_id = ?) AS config_count,
+       (SELECT COUNT(*) FROM peptide_doses WHERE peptide_id = ?) AS dose_count`,
+    [req.params.id, req.params.id],
+    (err, usage) => {
+      if (err) {
+        console.error('Error checking peptide usage:', err);
+        return res.status(500).json({ error: 'Failed to delete peptide' });
+      }
+
+      if ((usage?.config_count || 0) > 0 || (usage?.dose_count || 0) > 0) {
+        return res.status(400).json({ error: 'Cannot delete a peptide that is already used in your stack or dose history' });
+      }
+
+      db.run('DELETE FROM peptides WHERE id = ?', [req.params.id], function(deleteErr) {
+        if (deleteErr) {
+          console.error('Error deleting peptide:', deleteErr);
+          return res.status(500).json({ error: 'Failed to delete peptide' });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ error: 'Peptide not found' });
+        }
+        res.json({ message: 'Peptide deleted successfully' });
+      });
+    }
+  );
+});
+
 // Peptide doses routes
 app.post('/doses', authenticateToken, (req, res) => {
-  const { peptide_id, dose_amount, dose_unit, administration_time, injection_site, notes } = req.body;
+  const { peptide_id, config_id, dose_amount, dose_unit, administration_time, injection_site, notes } = req.body;
 
   if (!peptide_id || !dose_amount || !dose_unit || !administration_time) {
     return res.status(400).json({ error: 'Peptide ID, dose amount, unit, and administration time are required' });
   }
 
   const doseId = uuidv4();
-  db.run(
-    'INSERT INTO peptide_doses (id, user_id, peptide_id, dose_amount, dose_unit, administration_time, injection_site, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [doseId, req.user.userId, peptide_id, dose_amount, dose_unit, administration_time, injection_site, notes],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to record dose' });
+
+  const insertDose = (validatedConfigId = null) => {
+    db.run(
+      'INSERT INTO peptide_doses (id, user_id, peptide_id, config_id, dose_amount, dose_unit, administration_time, injection_site, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [doseId, req.user.userId, peptide_id, validatedConfigId, dose_amount, dose_unit, administration_time, injection_site, notes],
+      function(err) {
+        if (err) {
+          console.error('Error recording dose:', err);
+          return res.status(500).json({ error: 'Failed to record dose' });
+        }
+        res.status(201).json({ id: doseId, message: 'Dose recorded successfully' });
       }
-      res.status(201).json({ id: doseId, message: 'Dose recorded successfully' });
+    );
+  };
+
+  if (!config_id) {
+    insertDose(null);
+    return;
+  }
+
+  db.get(
+    'SELECT id, peptide_id FROM user_peptide_configs WHERE id = ? AND user_id = ?',
+    [config_id, req.user.userId],
+    (err, configRow) => {
+      if (err) {
+        console.error('Error validating peptide config:', err);
+        return res.status(500).json({ error: 'Failed to validate peptide configuration' });
+      }
+
+      if (!configRow) {
+        return res.status(400).json({ error: 'Invalid peptide configuration' });
+      }
+
+      if (configRow.peptide_id !== peptide_id) {
+        return res.status(400).json({ error: 'Dose peptide does not match the selected configuration' });
+      }
+
+      insertDose(configRow.id);
     }
   );
 });
@@ -506,9 +677,11 @@ app.get('/doses', authenticateToken, (req, res) => {
   const query = `
     SELECT 
       d.*,
-      p.name as peptide_name
+      p.name as peptide_name,
+      c.frequency as config_frequency
     FROM peptide_doses d
     JOIN peptides p ON d.peptide_id = p.id
+    LEFT JOIN user_peptide_configs c ON d.config_id = c.id
     WHERE d.user_id = ?
     ORDER BY d.administration_time DESC
   `;
@@ -525,9 +698,11 @@ app.get('/doses/recent', authenticateToken, (req, res) => {
   const query = `
     SELECT 
       d.*,
-      p.name as peptide_name
+      p.name as peptide_name,
+      c.frequency as config_frequency
     FROM peptide_doses d
     JOIN peptides p ON d.peptide_id = p.id
+    LEFT JOIN user_peptide_configs c ON d.config_id = c.id
     WHERE d.user_id = ? 
     AND d.administration_time >= datetime('now', '-7 days')
     ORDER BY d.administration_time DESC
@@ -674,15 +849,19 @@ app.get('/peptides/configs/:id/suggested-dose', authenticateToken, (req, res) =>
       return res.status(404).json({ error: 'Peptide configuration not found' });
     }
 
-    // Get the last dose for this peptide
+    // Get the last dose for this config first, with a peptide-level fallback for legacy rows.
     const lastDoseQuery = `
       SELECT * FROM peptide_doses
-      WHERE user_id = ? AND peptide_id = ?
+      WHERE user_id = ?
+      AND (
+        config_id = ?
+        OR (config_id IS NULL AND peptide_id = ?)
+      )
       ORDER BY administration_time DESC
       LIMIT 1
     `;
 
-    db.get(lastDoseQuery, [req.user.userId, config.peptide_id], (err, lastDose) => {
+    db.get(lastDoseQuery, [req.user.userId, config.id, config.peptide_id], (err, lastDose) => {
       if (err) {
         console.error('Error fetching last dose:', err);
         return res.status(500).json({ error: 'Failed to fetch dose history' });

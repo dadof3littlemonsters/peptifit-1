@@ -128,7 +128,7 @@ export default function Settings({ user }) {
     : 'stone'
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
@@ -140,7 +140,7 @@ export default function Settings({ user }) {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-lg px-4 py-6 pb-28 space-y-6">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 py-6 space-y-6 pb-[calc(104px+env(safe-area-inset-bottom))]">
 
         {/* ── 1. Account ─────────────────────────────────────────────────── */}
         <section>

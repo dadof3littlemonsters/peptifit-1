@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 const NAV_ITEMS = [
   { id: 'dashboard', href: '/', icon: '🏠', label: 'Dashboard' },
-  { id: 'peptides', href: '/log-dose', icon: '💉', label: 'Peptides' },
+  { id: 'peptides', href: '/schedule', icon: '💉', label: 'Peptides' },
   { id: 'meals', href: '/meals', icon: '🍽️', label: 'Meals' },
   { id: 'vitals', href: '/vitals', icon: '📊', label: 'Vitals' },
   { id: 'more', href: '/more', icon: '☰', label: 'More' }

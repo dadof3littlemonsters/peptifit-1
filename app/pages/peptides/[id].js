@@ -82,7 +82,7 @@ export default function PeptideDetailPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-50">
       <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-200 bg-white shadow-sm">
         <div className="mx-auto w-full max-w-md px-4">
           <div className="flex items-center">
@@ -94,7 +94,7 @@ export default function PeptideDetailPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto max-w-md px-4 py-6 pb-24 space-y-6">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto max-w-md px-4 py-6 space-y-6 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {/* Peptide Information */}
         <div className="card">
           <div className="flex items-start">

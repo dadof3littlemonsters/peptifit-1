@@ -18,7 +18,7 @@ const SAMPLE_LOGS = [
 
 export default function ProtocolLogsPage() {
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-4">
           <div>
@@ -31,7 +31,7 @@ export default function ProtocolLogsPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-lg px-4 py-5 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 py-5 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {SAMPLE_LOGS.length === 0 ? (
           <div className="flex min-h-[60vh] flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 rounded-2xl bg-cyan-500/10 p-4">

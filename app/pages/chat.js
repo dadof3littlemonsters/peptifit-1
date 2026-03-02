@@ -52,7 +52,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-slate-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-slate-900 text-white">
       <header className="sticky top-0 z-10 border-b border-gray-800 bg-slate-900">
         <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-4">
           <button onClick={() => setShowHistory(true)} className="text-gray-400">
@@ -65,7 +65,7 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-5 py-4 pb-28">
+      <main className="page-content flex-1 min-h-0 overflow-y-auto px-5 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <SparklesIcon className="mb-3 h-10 w-10 text-cyan-400" />

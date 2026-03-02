@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic'
 import BottomNav from '../components/BottomNav'
 import {
   ArrowLeftIcon,
-  PlusIcon,
   ChartBarIcon,
   ClockIcon,
   CalendarIcon,
@@ -42,6 +41,7 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.Res
 const VITAL_TYPES = {
   weight: {
     label: 'Weight',
+    shortLabel: 'Weight',
     unit: 'kg',
     altUnit: 'lbs',
     icon: ScaleIcon,
@@ -53,6 +53,7 @@ const VITAL_TYPES = {
   },
   blood_pressure: {
     label: 'Blood Pressure',
+    shortLabel: 'BP',
     unit: 'mmHg',
     icon: HeartIcon,
     color: '#ef4444', // red-500
@@ -66,6 +67,7 @@ const VITAL_TYPES = {
   },
   blood_glucose: {
     label: 'Blood Glucose',
+    shortLabel: 'Glucose',
     unit: 'mg/dL',
     altUnit: 'mmol/L',
     icon: BeakerIcon,
@@ -77,6 +79,7 @@ const VITAL_TYPES = {
   },
   heart_rate: {
     label: 'Heart Rate',
+    shortLabel: 'Heart',
     unit: 'bpm',
     icon: BoltIcon,
     color: '#ec4899', // pink-500
@@ -87,6 +90,7 @@ const VITAL_TYPES = {
   },
   body_fat: {
     label: 'Body Fat',
+    shortLabel: 'Body Fat',
     unit: '%',
     icon: ChartBarIcon,
     color: '#10b981', // emerald-500
@@ -97,6 +101,7 @@ const VITAL_TYPES = {
   },
   temperature: {
     label: 'Temperature',
+    shortLabel: 'Temp',
     unit: '°C',
     altUnit: '°F',
     icon: TemperatureIcon,
@@ -307,6 +312,11 @@ export default function VitalsPage() {
       .sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at))
   }, [vitalsData, historyFilter])
 
+  const hasAnyLatestReadings = useMemo(
+    () => Object.values(latestReadings || {}).some(Boolean),
+    [latestReadings]
+  )
+
   // Format value display
   const formatValue = (vital) => {
     if (!vital) return '-'
@@ -354,7 +364,7 @@ export default function VitalsPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-full w-full max-w-lg items-center justify-between px-4">
@@ -376,7 +386,7 @@ export default function VitalsPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-lg px-4 pb-24 pt-4">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 pt-3 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {/* View Tabs */}
         <div className="mt-0">
         <div className="bg-gray-800 rounded-xl p-1 flex gap-1">
@@ -411,11 +421,11 @@ export default function VitalsPage() {
 
         {/* Dashboard View */}
         {activeView === 'dashboard' && (
-          <div className="mt-6 space-y-6">
+          <div className={`mt-4 ${hasAnyLatestReadings ? 'space-y-6' : 'space-y-4'}`}>
           {/* Latest Readings Grid */}
           <div>
-            <h2 className="text-lg font-semibold text-white mb-3">Latest Readings</h2>
-            <div className="grid grid-cols-2 gap-3">
+            <h2 className={`font-semibold text-white ${hasAnyLatestReadings ? 'mb-3 text-lg' : 'mb-2 text-sm'}`}>Latest Readings</h2>
+            <div className="grid grid-cols-3 gap-2">
               {Object.entries(VITAL_TYPES).map(([type, config]) => {
                 const reading = latestReadings[type]
                 const trend = getTrend(type)
@@ -428,21 +438,23 @@ export default function VitalsPage() {
                       setChartType(type)
                       loadChartData(type, timeRange)
                     }}
-                    className={`bg-gray-800 rounded-xl p-3 border transition-all cursor-pointer ${
+                    className={`bg-gray-800 rounded-xl border transition-all cursor-pointer ${
+                      reading ? 'p-2' : 'p-1.5'
+                    } ${
                       chartType === type 
                         ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
                         : 'border-gray-700 hover:border-gray-600'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${config.color}20` }}>
-                        <Icon className="w-4 h-4" style={{ color: config.color }} />
+                    <div className={`flex items-center gap-1.5 ${reading ? 'mb-2' : 'mb-1'}`}>
+                      <div className={`rounded-lg ${reading ? 'p-1.5' : 'p-1'}`} style={{ backgroundColor: `${config.color}20` }}>
+                        <Icon className={`${reading ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} style={{ color: config.color }} />
                       </div>
-                      <span className="text-gray-400 text-xs">{config.label}</span>
+                      <span className="text-[11px] leading-tight text-gray-400">{config.shortLabel || config.label}</span>
                     </div>
                     
-                    <div className="flex items-end gap-2">
-                      <span className="text-2xl font-bold text-white">
+                    <div className={`flex items-end ${reading ? 'gap-2' : 'gap-1'}`}>
+                      <span className={`${reading ? 'text-lg' : 'text-base'} font-bold text-white`}>
                         {reading ? reading.value : '-'}
                       </span>
                       {reading && (
@@ -479,31 +491,35 @@ export default function VitalsPage() {
           </div>
 
           {/* Trend Chart */}
-          <div className="bg-gray-800 rounded-2xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-gray-800 rounded-2xl p-3 border border-gray-700">
+            <div className={`flex items-start justify-between ${chartData.length > 0 ? 'mb-4' : 'mb-2'}`}>
               <div>
-                <h3 className="text-lg font-semibold text-white">
+                <h3 className="text-sm font-semibold text-white">
                   {VITAL_TYPES[chartType]?.label} Trend
                 </h3>
-                <p className="text-gray-400 text-sm">
-                  Last {timeRange} days
-                </p>
+                {chartData.length > 0 && (
+                  <p className="text-gray-400 text-sm">
+                    Last {timeRange} days
+                  </p>
+                )}
               </div>
-              <div className="flex gap-1">
-                {TIME_RANGES.map((range) => (
-                  <button
-                    key={range.value}
-                    onClick={() => setTimeRange(range.value)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                      timeRange === range.value
-                        ? 'bg-cyan-500 text-black'
-                        : 'bg-gray-700 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {range.label}
-                  </button>
-                ))}
-              </div>
+              {chartData.length > 0 && (
+                <div className="flex gap-1">
+                  {TIME_RANGES.map((range) => (
+                    <button
+                      key={range.value}
+                      onClick={() => setTimeRange(range.value)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                        timeRange === range.value
+                          ? 'bg-cyan-500 text-black'
+                          : 'bg-gray-700 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {range.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             
             {chartData.length > 0 && isClient ? (
@@ -536,10 +552,10 @@ export default function VitalsPage() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-32 flex items-center justify-center text-gray-500">
+              <div className="flex h-24 items-center justify-center text-gray-500">
                 <div className="text-center">
-                  <ChartBarIcon className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                  <p>{isClient ? 'No data for selected period' : 'Loading chart...'}</p>
+                  <ChartBarIcon className="mx-auto mb-1 h-8 w-8 opacity-50" />
+                  <p className="text-sm">{isClient ? 'No data for selected period' : 'Loading chart...'}</p>
                 </div>
               </div>
             )}
@@ -547,8 +563,8 @@ export default function VitalsPage() {
 
           {/* Quick Log Buttons */}
           <div>
-            <h3 className="text-lg font-semibold text-white mb-3">Quick Log</h3>
-            <div className="grid grid-cols-4 gap-2">
+            <h3 className="text-sm font-semibold text-white mb-2">Quick Log</h3>
+            <div className="grid grid-cols-3 gap-2">
               {Object.entries(VITAL_TYPES).map(([type, config]) => {
                 const Icon = config.icon
                 return (
@@ -558,10 +574,12 @@ export default function VitalsPage() {
                       setSelectedType(type)
                       setActiveView('log')
                     }}
-                    className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-2.5 flex flex-col items-center gap-1.5 transition-colors"
+                    className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-2 flex flex-col items-center gap-1 text-center transition-colors"
                   >
-                    <Icon className="w-5 h-5" style={{ color: config.color }} />
-                    <span className="text-xs text-gray-400">{config.label}</span>
+                    <Icon className="w-4 h-4" style={{ color: config.color }} />
+                    <span className="text-[11px] leading-tight text-gray-400 whitespace-normal break-words">
+                      {config.label}
+                    </span>
                   </button>
                 )
               })}
@@ -819,14 +837,6 @@ export default function VitalsPage() {
           </div>
         )}
       </main>
-
-      {/* Floating Quick Add Button */}
-      <button
-        onClick={() => setActiveView('log')}
-        className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-500 text-black shadow-lg shadow-cyan-500/30 transition-colors hover:bg-cyan-400"
-      >
-        <PlusIcon className="w-7 h-7" />
-      </button>
 
       <BottomNav active="vitals" />
     </div>

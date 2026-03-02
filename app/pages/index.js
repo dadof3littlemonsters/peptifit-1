@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
-import { doses, peptides, vitals, meals, food, bloodResults } from '../lib/api'
+import { doses, peptideConfigs, peptides, vitals, meals, food, bloodResults } from '../lib/api'
 import Link from 'next/link'
 import BottomNav from '../components/BottomNav'
+import {
+  formatPeptideFrequencyLabel,
+  isPeptideConfigDueOnDate,
+  isPeptideTakenOnDate,
+  isPrnPeptideConfig
+} from '../lib/peptideSchedule'
 import {
   ChevronDownIcon,
   HeartIcon,
@@ -188,25 +194,27 @@ function MacroBar({ protein, carbs, fat }) {
 function PeptideDoseCard({ userStack, recentDoses }) {
   if (!userStack || userStack.length === 0) return null
 
-  const today = new Date().toDateString()
-  const todayDoses = recentDoses.filter((dose) =>
-    new Date(dose.administration_time).toDateString() === today
-  )
+  const todaysConfigs = userStack.filter((config) => {
+    if (isPrnPeptideConfig(config)) return false
+    return isPeptideConfigDueOnDate(config, recentDoses, new Date()) || isPeptideTakenOnDate(config, recentDoses, new Date())
+  })
+
+  if (todaysConfigs.length === 0) return null
 
   return (
     <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
       <div className="flex items-center justify-between mb-3">
         <span className="text-white font-semibold text-sm">Peptides Today</span>
-        <Link href="/peptides" className="text-cyan-400 text-xs">View all →</Link>
+        <Link href="/schedule" className="text-cyan-400 text-xs">View all →</Link>
       </div>
       <div className="flex flex-wrap gap-2">
-        {userStack.map((item) => {
-          const dosed = todayDoses.some((dose) => dose.peptide_id === item.peptide_id)
-          const label = item.peptide_name || item.peptide?.name || item.peptide_id
+        {todaysConfigs.map((item) => {
+          const dosed = isPeptideTakenOnDate(item, recentDoses, new Date())
+          const label = item.peptide_name || item.peptide_id
 
           return (
             <div
-              key={item.peptide_id}
+              key={item.id || item.peptide_id}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
                 dosed
                   ? 'bg-green-500/20 text-green-400 border border-green-500/30'
@@ -215,6 +223,7 @@ function PeptideDoseCard({ userStack, recentDoses }) {
             >
               <span>{dosed ? '✓' : '○'}</span>
               <span>{label}</span>
+              <span className="text-[10px] opacity-80">{formatPeptideFrequencyLabel(item)}</span>
             </div>
           )
         })}
@@ -252,7 +261,6 @@ export default function LandingDashboard({ user }) {
 
   useEffect(() => {
     loadDashboardData()
-    loadUserStack()
     loadTodayMeals()
     loadCalorieGoal()
   }, [])
@@ -304,12 +312,7 @@ export default function LandingDashboard({ user }) {
   // Must be here — above the `if (loading) return` — so hook count is constant
   // across every render regardless of loading state.
   const itemsDueToday = useMemo(() => {
-    return userStack.filter(stackItem => {
-      const lastDose = recentDoses
-        .filter(dose => dose.peptide_id === stackItem.peptide_id)
-        .sort((a, b) => new Date(b.administration_time) - new Date(a.administration_time))[0]
-      return !lastDose || new Date(lastDose.administration_time).toDateString() !== new Date().toDateString()
-    })
+    return userStack.filter((stackItem) => isPeptideConfigDueOnDate(stackItem, recentDoses, new Date()))
   }, [userStack, recentDoses])
 
   const biomarkerGroups = useMemo(() => {
@@ -380,14 +383,16 @@ export default function LandingDashboard({ user }) {
 
   const loadDashboardData = async () => {
     try {
-      const [dosesData, peptidesData, vitalsLatest, bloodPanels] = await Promise.all([
+      const [dosesData, peptidesData, peptideConfigData, vitalsLatest, bloodPanels] = await Promise.all([
         doses.getAll(),
         peptides.getAll(),
+        peptideConfigs.getAll().catch(() => []),
         vitals.getLatest().catch(() => null),
         bloodResults.getAll().catch(() => [])
       ])
       setRecentDoses(dosesData)
       setAvailablePeptides(peptidesData)
+      setUserStack(peptideConfigData || [])
       setLatestBloodResult(Array.isArray(bloodPanels) && bloodPanels.length > 0 ? bloodPanels[0] : null)
 
       // Load vitals data for dashboard preview
@@ -400,18 +405,6 @@ export default function LandingDashboard({ user }) {
       console.error('Failed to load dashboard data:', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadUserStack = async () => {
-    // TODO: Load from API - for now using localStorage
-    try {
-      const saved = localStorage.getItem('peptifit_user_stack')
-      if (saved) {
-        setUserStack(JSON.parse(saved))
-      }
-    } catch (err) {
-      console.error('Error loading user stack:', err)
     }
   }
 
@@ -451,7 +444,7 @@ export default function LandingDashboard({ user }) {
 
       const lastDose = peptideDoses[0]
       const peptide = availablePeptides.find(p => p.id === stackItem.peptide_id)
-      const schedule = stackItem.schedule
+      const schedule = stackItem
 
       if (schedule.frequency === 'weekly') {
         const lastDoseTime = new Date(lastDose.administration_time)
@@ -660,7 +653,7 @@ export default function LandingDashboard({ user }) {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 bg-gray-900 border-b border-gray-800">
         <div>
           <h1 className="text-xl font-bold text-white">Today</h1>
@@ -671,7 +664,7 @@ export default function LandingDashboard({ user }) {
         </Link>
       </header>
 
-      <main className="page-content pb-24">
+      <main className="page-content flex-1 min-h-0 overflow-y-auto pb-[calc(104px+env(safe-area-inset-bottom))]">
         <div className="px-4 pt-3">
           <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4">
             <div className="flex items-center justify-between gap-4">

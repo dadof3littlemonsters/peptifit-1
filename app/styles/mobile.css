@@ -19,6 +19,11 @@ html, body {
   overscroll-behavior: none;
 }
 
+:root {
+  --bottom-nav-offset: calc(88px + env(safe-area-inset-bottom));
+  --bottom-action-offset: calc(164px + env(safe-area-inset-bottom));
+}
+
 #__next {
   height: 100dvh;
   height: 100vh; /* fallback for older browsers */
@@ -33,10 +38,19 @@ html, body {
 */
 .page-content {
   flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+}
+
+.page-content-nav {
+  padding-bottom: var(--bottom-nav-offset);
+}
+
+.page-content-actionbar {
+  padding-bottom: var(--bottom-action-offset);
 }
 
 /* ── Tap targets ─────────────────────────────────────────────
@@ -47,12 +61,6 @@ button,
 [role="button"],
 input[type="submit"],
 input[type="button"] {
-  min-height: 44px;
-}
-
-/* Links only get the tap target when they're standalone nav/action items.
-   Inline text links (inside paragraphs, badges, etc.) should NOT be 44px. */
-a:not(.inline-link):not([class*="text-xs"]):not([class*="text-\[10px\]"]):not([class*="rounded-full"]) {
   min-height: 44px;
 }
 
@@ -84,5 +92,5 @@ textarea {
    Add this as default so no content is hidden behind the nav.
 */
 .pb-nav {
-  padding-bottom: 5rem; /* 80px — safe clearance for bottom nav */
+  padding-bottom: var(--bottom-nav-offset);
 }

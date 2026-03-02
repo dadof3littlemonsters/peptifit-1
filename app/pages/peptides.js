@@ -68,7 +68,7 @@ export default function PeptidesPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-black text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-black text-white">
       <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-800 bg-black">
         <div className="mx-auto flex w-full max-w-md items-center px-4">
           <div className="flex items-center">
@@ -80,7 +80,7 @@ export default function PeptidesPage() {
         </div>
       </header>
 
-      <main className="page-content mx-auto w-full max-w-md px-4 py-4 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-md px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl mb-6">
             {error}

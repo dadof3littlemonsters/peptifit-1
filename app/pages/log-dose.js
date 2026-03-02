@@ -86,6 +86,7 @@ export default function LogDose() {
   const [error, setError] = useState('')
   const [showManualForm, setShowManualForm] = useState(false)
   const [showAllPeptides, setShowAllPeptides] = useState(false)
+  const [prefillApplied, setPrefillApplied] = useState(false)
   
   const router = useRouter()
 
@@ -110,6 +111,35 @@ export default function LogDose() {
     
     loadData()
   }, [])
+
+  useEffect(() => {
+    if (!router.isReady || loading || prefillApplied) return
+
+    const peptideId = typeof router.query.peptide === 'string' ? router.query.peptide : ''
+    const configId = typeof router.query.config === 'string' ? router.query.config : ''
+
+    if (!peptideId && !configId) {
+      setPrefillApplied(true)
+      return
+    }
+
+    const matchedConfig = configId
+      ? userConfigs.find((config) => config.id === configId)
+      : userConfigs.find((config) => config.peptide_id === peptideId)
+
+    if (matchedConfig) {
+      handleQuickSelect(matchedConfig)
+      setPrefillApplied(true)
+      return
+    }
+
+    const matchedPeptide = availablePeptides.find((peptide) => peptide.id === peptideId)
+    if (matchedPeptide) {
+      handleManualPeptideSelect(matchedPeptide)
+    }
+
+    setPrefillApplied(true)
+  }, [router.isReady, router.query.peptide, router.query.config, loading, prefillApplied, userConfigs, availablePeptides])
 
   const loadData = async () => {
     setLoading(true)
@@ -219,7 +249,7 @@ export default function LogDose() {
       
       // Redirect after success
       setTimeout(() => {
-        router.push('/')
+        router.push('/schedule')
       }, 2000)
     } catch (err) {
       console.error('Failed to log dose:', err)
@@ -271,7 +301,7 @@ export default function LogDose() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-black">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-black">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
         <div className="mx-auto flex h-full max-w-md items-center px-4">
@@ -292,7 +322,7 @@ export default function LogDose() {
       </header>
 
       {/* Main Content */}
-      <main className="page-content mx-auto max-w-md px-4 py-4 pb-24">
+      <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto max-w-md px-4 py-4 pb-[calc(104px+env(safe-area-inset-bottom))]">
         {/* Error Banner */}
         {error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">

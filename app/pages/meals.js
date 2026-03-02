@@ -522,7 +522,7 @@ export default function Meals({ user }) {
   const remainingCalories = calorieGoal - dailyTotals.calories
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden text-white">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-full max-w-md items-center px-4">
@@ -572,11 +572,11 @@ export default function Meals({ user }) {
         </div>
       </div>
 
-      <main className="page-content pb-40">
+      <main className="page-content flex-1 min-h-0 overflow-y-auto pb-[calc(188px+env(safe-area-inset-bottom))]">
       <div className="mx-auto max-w-md px-4">
         {/* Summary Bar */}
-        <div className="mt-4 bg-gray-800/50 rounded-2xl p-4 border border-gray-700">
-          <div className="flex items-center justify-between mb-3">
+        <div className="mt-4 bg-gray-800/50 rounded-2xl border border-gray-700 p-3">
+          <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-2">
               <FireIcon className="h-5 w-5 text-orange-500" />
               <span className="text-gray-300 text-sm">Calories</span>
@@ -588,7 +588,7 @@ export default function Meals({ user }) {
           </div>
           
           {/* Progress Bar */}
-          <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-3">
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-2.5">
             <div
               className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-500"
               style={{ width: `${calorieProgress}%` }}
@@ -607,7 +607,7 @@ export default function Meals({ user }) {
           </div>
           
           {/* Macros */}
-          <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-700">
+          <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-gray-700">
             <div className="text-center">
               <div className="text-blue-400 font-bold text-lg">{Math.round(dailyTotals.protein)}g</div>
               <div className="text-gray-400 text-xs">Protein</div>
@@ -642,8 +642,8 @@ export default function Meals({ user }) {
               >
                 {/* Section Header */}
                 <div
-                  className={`flex items-center justify-between bg-gray-800/50 px-4 ${
-                    isCollapsed ? 'py-4' : 'py-3'
+                  className={`flex items-center justify-between bg-gray-800/50 px-3 ${
+                    isCollapsed ? 'py-3' : 'py-2.5'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -685,7 +685,7 @@ export default function Meals({ user }) {
                         {typeMeals.map((meal) => (
                           <div
                             key={meal.id}
-                            className="group flex items-center justify-between px-4 py-3 transition-colors hover:bg-gray-800/30"
+                            className="group flex items-center justify-between px-3 py-2.5 transition-colors hover:bg-gray-800/30"
                           >
                             <div className="flex-1">
                               <p className="text-white font-medium text-sm">{meal.food_name}</p>
@@ -712,14 +712,14 @@ export default function Meals({ user }) {
                         ))}
                       </div>
                     ) : (
-                      <div className="px-4 py-6 text-center">
+                      <div className="px-3 py-4 text-center">
                         <p className="text-gray-500 text-sm">No foods logged</p>
                       </div>
                     )}
 
                     <button
                       onClick={() => openModal(mealType.id)}
-                      className="flex w-full items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-cyan-400 transition-colors hover:bg-cyan-500/5"
+                      className="flex w-full items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-cyan-400 transition-colors hover:bg-cyan-500/5"
                     >
                       <PlusIcon className="h-4 w-4" />
                       Add Food
@@ -772,11 +772,11 @@ export default function Meals({ user }) {
 
       {foodSearchOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
           onClick={closeFoodSearch}
         >
           <div
-            className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4"
+            className="my-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4 sm:max-h-[85dvh]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -811,6 +811,7 @@ export default function Meals({ user }) {
               <>
                 <input
                   type="text"
+                  autoFocus
                   value={foodSearchQuery}
                   onChange={(event) => setFoodSearchQuery(event.target.value)}
                   placeholder="Search chicken breast, yogurt, oats..."
@@ -847,11 +848,11 @@ export default function Meals({ user }) {
 
       {barcodeScannerOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
           onClick={closeBarcodeScanner}
         >
           <div
-            className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4"
+            className="my-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4 sm:max-h-[85dvh]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -919,11 +920,11 @@ export default function Meals({ user }) {
       {/* Add Food Modal */}
       {isModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
           onClick={closeModal}
         >
           <div
-            className="max-h-[85dvh] w-full max-w-md overflow-hidden rounded-t-3xl bg-gray-800 sm:rounded-3xl"
+            className="my-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-hidden rounded-3xl bg-gray-800 sm:max-h-[85dvh]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
