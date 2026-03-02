@@ -13,7 +13,7 @@ const MORE_ITEMS = [
 
 export default function MorePage() {
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="flex items-center px-4 h-14 flex-shrink-0 bg-gray-900 border-b border-gray-800">
         <div>
           <h1 className="text-xl font-bold text-white">More</h1>

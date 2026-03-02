@@ -14,7 +14,7 @@ const USAGE = {
 
 export default function ProfilePage() {
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="border-b border-gray-800 bg-gray-900">
         <div className="mx-auto h-14 max-w-lg px-4">
           <div className="flex h-full items-center">

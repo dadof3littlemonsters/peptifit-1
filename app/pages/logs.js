@@ -18,7 +18,7 @@ const SAMPLE_LOGS = [
 
 export default function ProtocolLogsPage() {
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-4">
           <div>

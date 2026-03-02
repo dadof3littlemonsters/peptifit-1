@@ -336,7 +336,7 @@ export default function FoodPage() {
   }, [groupedLogs]);
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-900 text-white">
       <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex w-full max-w-md items-center justify-between px-4">
           <div>

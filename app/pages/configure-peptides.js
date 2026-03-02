@@ -911,7 +911,7 @@ export default function PeptideConfigurationWizard() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-black text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-black text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
         <div className="mx-auto flex h-full max-w-md items-center px-4">

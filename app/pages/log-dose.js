@@ -301,7 +301,7 @@ export default function LogDose() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-black">
+    <div className="h-full flex flex-col overflow-hidden bg-black">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-black">
         <div className="mx-auto flex h-full max-w-md items-center px-4">

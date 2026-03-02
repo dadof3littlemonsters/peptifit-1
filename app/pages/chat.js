@@ -52,7 +52,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-slate-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-slate-900 text-white">
       <header className="sticky top-0 z-10 border-b border-gray-800 bg-slate-900">
         <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-4">
           <button onClick={() => setShowHistory(true)} className="text-gray-400">

@@ -408,7 +408,7 @@ export default function SupplementsPage() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-900 text-white">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-900 text-white">
       {/* Header */}
       <header className="h-14 flex-shrink-0 border-b border-gray-800 bg-gray-900">
         <div className="mx-auto flex h-full w-full max-w-lg items-center px-4">

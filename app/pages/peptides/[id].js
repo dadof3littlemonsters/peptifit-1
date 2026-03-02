@@ -82,7 +82,7 @@ export default function PeptideDetailPage() {
   }
 
   return (
-    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gray-50">
+    <div className="h-full flex flex-col overflow-hidden bg-gray-50">
       <header className="flex h-14 flex-shrink-0 items-center border-b border-gray-200 bg-white shadow-sm">
         <div className="mx-auto w-full max-w-md px-4">
           <div className="flex items-center">
