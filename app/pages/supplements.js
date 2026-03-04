@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supplements } from '../lib/api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { ai, supplements } from '../lib/api'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import BottomNav from '../components/BottomNav'
+import CameraCapturePanel from '../components/CameraCapturePanel'
 import { 
   ArrowLeftIcon, 
   PlusIcon, 
@@ -22,6 +24,7 @@ const FULL_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 // Frequency options
 const FREQUENCY_OPTIONS = [
   { value: 'daily', label: 'Daily' },
+  { value: 'twice_daily', label: 'Twice Daily' },
   { value: 'weekly', label: 'Weekly' },
   { value: 'weekdays', label: 'Weekdays (Mon-Fri)' },
   { value: 'weekends', label: 'Weekends (Sat-Sun)' },
@@ -41,7 +44,59 @@ const TIME_OPTIONS = [
   { value: 'anytime', label: 'Anytime' }
 ]
 
+const BarcodeScanner = dynamic(() => import('../components/BarcodeScanner'), {
+  ssr: false
+})
+
+function getAiScanErrorMessage(error, fallbackMessage) {
+  if (error?.response?.status === 504) {
+    return 'Label analysis timed out. Try a closer photo with just the label.'
+  }
+
+  return error?.response?.data?.error || error?.message || fallbackMessage
+}
+
+function getScheduledDoseCount(frequency) {
+  if (frequency === 'twice_daily') {
+    return 2
+  }
+
+  return 1
+}
+
+function parseTimeOfDayValue(timeOfDay) {
+  const parts = String(timeOfDay || '')
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  return {
+    primary: parts[0] || 'morning',
+    secondary: parts[1] || 'evening'
+  }
+}
+
+function buildTimeOfDayValue(frequency, primaryTime, secondaryTime) {
+  if (frequency === 'twice_daily') {
+    return `${primaryTime || 'morning'}|${secondaryTime || 'evening'}`
+  }
+
+  return primaryTime || 'morning'
+}
+
+function formatTimeOfDayLabel(timeOfDay) {
+  const { primary, secondary } = parseTimeOfDayValue(timeOfDay)
+  const formatPart = (value) => value.replaceAll('_', ' ')
+
+  if (String(timeOfDay || '').includes('|')) {
+    return `${formatPart(primary)} + ${formatPart(secondary)}`
+  }
+
+  return formatPart(primary)
+}
+
 export default function SupplementsPage() {
+  const supplementScanRequestIdRef = useRef(0)
   const [supplementsList, setSupplementsList] = useState([])
   const [supplementLogs, setSupplementLogs] = useState({})
   const [inventory, setInventory] = useState({})
@@ -52,6 +107,17 @@ export default function SupplementsPage() {
   // Form state
   const [showForm, setShowForm] = useState(false)
   const [editingSupplement, setEditingSupplement] = useState(null)
+  const [entryMode, setEntryMode] = useState('manual')
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [catalogResults, setCatalogResults] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogError, setCatalogError] = useState('')
+  const [barcodeLookupLoading, setBarcodeLookupLoading] = useState(false)
+  const [barcodeError, setBarcodeError] = useState('')
+  const [barcodeNotFound, setBarcodeNotFound] = useState(false)
+  const [scanLoading, setScanLoading] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const [scanCaptured, setScanCaptured] = useState('')
   const [formData, setFormData] = useState({
     name: '',
     brand: '',
@@ -62,6 +128,7 @@ export default function SupplementsPage() {
     frequency: 'daily',
     custom_days: [],
     time_of_day: 'morning',
+    second_time_of_day: 'evening',
     reorder_threshold: 7,
     notes: ''
   })
@@ -70,6 +137,33 @@ export default function SupplementsPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    if (!showForm || entryMode !== 'search' || catalogQuery.trim().length < 2) {
+      if (!catalogQuery.trim()) {
+        setCatalogResults([])
+        setCatalogError('')
+      }
+      return undefined
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setCatalogLoading(true)
+      setCatalogError('')
+
+      try {
+        const response = await supplements.searchCatalog(catalogQuery.trim())
+        setCatalogResults(response.results || [])
+      } catch (catalogFailure) {
+        setCatalogResults([])
+        setCatalogError(catalogFailure.response?.data?.error || 'Search failed')
+      } finally {
+        setCatalogLoading(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(timeoutId)
+  }, [showForm, entryMode, catalogQuery])
 
   const loadData = async () => {
     try {
@@ -144,6 +238,7 @@ export default function SupplementsPage() {
     const freq = supplement.frequency || 'daily'
     
     if (freq === 'daily') return true
+    if (freq === 'twice_daily') return true
     if (freq === 'weekly') {
       // For weekly, check if taken this week
       const logs = supplementLogs[supplement.id] || []
@@ -161,9 +256,35 @@ export default function SupplementsPage() {
 
   // Check if dose was taken today
   const isTakenToday = (supplementId) => {
+    return getTakenDoseCountToday(supplementId) >= getScheduledDoseCount(
+      supplementsList.find((supplement) => supplement.id === supplementId)?.frequency || 'daily'
+    )
+  }
+
+  const getTakenDoseCountToday = (supplementId) => {
     const logs = supplementLogs[supplementId] || []
     const today = new Date().toDateString()
-    return logs.some(log => new Date(log.taken_at).toDateString() === today)
+    return logs.filter((log) => new Date(log.taken_at).toDateString() === today).length
+  }
+
+  const getLatestTodayLog = (supplementId) => {
+    const logs = supplementLogs[supplementId] || []
+    const today = new Date().toDateString()
+    return logs.find((log) => new Date(log.taken_at).toDateString() === today) || null
+  }
+
+  const getTodaySummary = () => {
+    const todaysSupplements = getTodaysSupplements()
+
+    return todaysSupplements.reduce((summary, supplement) => {
+      const scheduled = getScheduledDoseCount(supplement.frequency || 'daily')
+      const taken = Math.min(getTakenDoseCountToday(supplement.id), scheduled)
+
+      return {
+        taken: summary.taken + taken,
+        scheduled: summary.scheduled + scheduled
+      }
+    }, { taken: 0, scheduled: 0 })
   }
 
   // Get weekly adherence stats
@@ -173,8 +294,8 @@ export default function SupplementsPage() {
     const weekStart = new Date(today)
     weekStart.setDate(today.getDate() - today.getDay())
     
-    const scheduledDays = []
-    const takenDays = []
+    let scheduledDoses = 0
+    let takenDoses = 0
     
     for (let i = 0; i < 7; i++) {
       const date = new Date(weekStart)
@@ -183,21 +304,22 @@ export default function SupplementsPage() {
       // Check if scheduled for this day
       const isScheduled = isScheduledForDate(supplementId, date)
       if (isScheduled) {
-        scheduledDays.push(date.toDateString())
-        
-        // Check if taken
-        const taken = logs.some(log => 
+        const supplement = supplementsList.find((item) => item.id === supplementId)
+        const scheduledForDay = getScheduledDoseCount(supplement?.frequency || 'daily')
+        const takenForDay = logs.filter((log) =>
           new Date(log.taken_at).toDateString() === date.toDateString()
-        )
-        if (taken) takenDays.push(date.toDateString())
+        ).length
+
+        scheduledDoses += scheduledForDay
+        takenDoses += Math.min(takenForDay, scheduledForDay)
       }
     }
     
-    const adherence = scheduledDays.length > 0 
-      ? Math.round((takenDays.length / scheduledDays.length) * 100) 
+    const adherence = scheduledDoses > 0
+      ? Math.round((takenDoses / scheduledDoses) * 100)
       : 0
     
-    return { taken: takenDays.length, scheduled: scheduledDays.length, adherence }
+    return { taken: takenDoses, scheduled: scheduledDoses, adherence }
   }
 
   // Helper to check if scheduled for a specific date
@@ -209,6 +331,7 @@ export default function SupplementsPage() {
     const freq = supplement.frequency || 'daily'
     
     if (freq === 'daily') return true
+    if (freq === 'twice_daily') return true
     if (freq === 'weekdays') return dayOfWeek >= 1 && dayOfWeek <= 5
     if (freq === 'weekends') return dayOfWeek === 0 || dayOfWeek === 6
     if (freq === 'custom') {
@@ -251,17 +374,50 @@ export default function SupplementsPage() {
     }
   }
 
+  const handleUndoDose = async (supplement) => {
+    const latestLog = getLatestTodayLog(supplement.id)
+
+    if (!latestLog) {
+      return
+    }
+
+    try {
+      await supplements.deleteLog(supplement.id, latestLog.id)
+
+      const inv = inventory[supplement.id]
+      if (inv) {
+        const maxServings = inv.servingsPerContainer || inv.remainingServings || 0
+        const newInventory = {
+          ...inventory,
+          [supplement.id]: {
+            ...inv,
+            remainingServings: Math.min(maxServings, (inv.remainingServings || 0) + 1)
+          }
+        }
+        saveInventory(newInventory)
+      }
+
+      const logs = await supplements.getLogs(supplement.id, { limit: 100 })
+      setSupplementLogs((prev) => ({ ...prev, [supplement.id]: logs }))
+    } catch (err) {
+      setError('Failed to undo dose')
+      console.error('Error undoing dose:', err)
+    }
+  }
+
   // Handle adding/editing supplement
   const handleSubmit = async (e) => {
     e.preventDefault()
     
     const supplementData = {
       name: formData.name,
-      description: formData.brand ? `${formData.brand} - ${formData.notes || ''}` : formData.notes,
+      brand: formData.brand,
+      dosage: formData.dose_amount ? `${formData.dose_amount} ${formData.dose_unit}` : '',
       dose_amount: parseFloat(formData.dose_amount) || 1,
       dose_unit: formData.dose_unit,
+      servings_per_container: parseInt(formData.servings_per_container, 10) || null,
       frequency: formData.frequency,
-      time_of_day: formData.time_of_day,
+      time_of_day: buildTimeOfDayValue(formData.frequency, formData.time_of_day, formData.second_time_of_day),
       notes: formData.notes
     }
     
@@ -305,6 +461,11 @@ export default function SupplementsPage() {
       // Reset form and reload
       setShowForm(false)
       setEditingSupplement(null)
+      setEntryMode('manual')
+      supplementScanRequestIdRef.current += 1
+      setScanLoading(false)
+      setScanError('')
+      setScanCaptured('')
       setFormData({
         name: '',
         brand: '',
@@ -315,6 +476,7 @@ export default function SupplementsPage() {
         frequency: 'daily',
         custom_days: [],
         time_of_day: 'morning',
+        second_time_of_day: 'evening',
         reorder_threshold: 7,
         notes: ''
       })
@@ -347,17 +509,31 @@ export default function SupplementsPage() {
   // Open edit form
   const handleEdit = (supplement) => {
     const inv = inventory[supplement.id] || {}
+    const parsedTimes = parseTimeOfDayValue(supplement.time_of_day)
     setEditingSupplement(supplement)
+    setEntryMode('manual')
+    supplementScanRequestIdRef.current += 1
+    setCatalogQuery('')
+    setCatalogResults([])
+    setCatalogLoading(false)
+    setCatalogError('')
+    setBarcodeLookupLoading(false)
+    setBarcodeError('')
+    setBarcodeNotFound(false)
+    setScanLoading(false)
+    setScanError('')
+    setScanCaptured('')
     setFormData({
       name: supplement.name || '',
-      brand: supplement.description?.split(' - ')[0] || '',
+      brand: supplement.brand || '',
       dose_amount: supplement.dose_amount || '',
       dose_unit: supplement.dose_unit || 'capsules',
       servings_per_container: inv.servingsPerContainer || '',
       remaining_servings: inv.remainingServings || '',
       frequency: supplement.frequency || 'daily',
       custom_days: inv.customDays || [],
-      time_of_day: supplement.time_of_day || 'morning',
+      time_of_day: parsedTimes.primary,
+      second_time_of_day: parsedTimes.secondary,
       reorder_threshold: inv.reorderThreshold || 7,
       notes: supplement.notes || ''
     })
@@ -367,6 +543,18 @@ export default function SupplementsPage() {
   // Open add form
   const handleAdd = () => {
     setEditingSupplement(null)
+    setEntryMode('search')
+    supplementScanRequestIdRef.current += 1
+    setCatalogQuery('')
+    setCatalogResults([])
+    setCatalogLoading(false)
+    setCatalogError('')
+    setBarcodeLookupLoading(false)
+    setBarcodeError('')
+    setBarcodeNotFound(false)
+    setScanLoading(false)
+    setScanError('')
+    setScanCaptured('')
     setFormData({
       name: '',
       brand: '',
@@ -377,10 +565,99 @@ export default function SupplementsPage() {
       frequency: 'daily',
       custom_days: [],
       time_of_day: 'morning',
+      second_time_of_day: 'evening',
       reorder_threshold: 7,
       notes: ''
     })
     setShowForm(true)
+  }
+
+  const applyCatalogResult = (result) => {
+    const noteParts = [result?.ingredients, result?.directions].filter(Boolean)
+
+    setFormData((current) => ({
+      ...current,
+      name: result?.name || current.name,
+      brand: result?.brand || current.brand,
+      dose_amount: result?.dose_amount ?? current.dose_amount,
+      dose_unit: result?.dose_unit || current.dose_unit,
+      servings_per_container: result?.servings_per_container ?? current.servings_per_container,
+      notes: noteParts.length > 0 ? noteParts.join('\n') : current.notes
+    }))
+    setEntryMode('manual')
+    setCatalogError('')
+    setBarcodeError('')
+    setBarcodeNotFound(false)
+  }
+
+  const handleSupplementBarcodeDetected = async (rawCode) => {
+    const code = String(rawCode || '').trim()
+
+    if (!code) {
+      return
+    }
+
+    setBarcodeLookupLoading(true)
+    setBarcodeError('')
+    setBarcodeNotFound(false)
+
+    try {
+      const result = await supplements.lookupBarcode(code)
+      applyCatalogResult(result)
+    } catch (lookupFailure) {
+      if (lookupFailure.response?.status === 404) {
+        setBarcodeNotFound(true)
+        return
+      }
+
+      setBarcodeError(lookupFailure.response?.data?.error || 'Barcode lookup failed')
+    } finally {
+      setBarcodeLookupLoading(false)
+    }
+  }
+
+  const handleSupplementScan = async ({ base64Image, previewUrl }) => {
+    const requestId = supplementScanRequestIdRef.current + 1
+    supplementScanRequestIdRef.current = requestId
+    setScanCaptured(previewUrl)
+    setScanLoading(true)
+    setScanError('')
+
+    try {
+      const result = await ai.scanSupplementLabel(base64Image)
+      if (supplementScanRequestIdRef.current !== requestId) {
+        return
+      }
+
+      const noteParts = [result?.ingredients, result?.directions].filter(Boolean)
+
+      setFormData((current) => ({
+        ...current,
+        name: result?.name || current.name,
+        brand: result?.brand || current.brand,
+        dose_amount: result?.dose_amount ?? current.dose_amount,
+        dose_unit: result?.dose_unit || current.dose_unit,
+        servings_per_container: result?.servings_per_container ?? current.servings_per_container,
+        notes: noteParts.length > 0 ? noteParts.join('\n') : current.notes
+      }))
+      setEntryMode('manual')
+    } catch (scanFailure) {
+      if (supplementScanRequestIdRef.current === requestId) {
+        setScanError(getAiScanErrorMessage(scanFailure, 'Unable to analyze this label.'))
+        setEntryMode('manual')
+      }
+    } finally {
+      if (supplementScanRequestIdRef.current === requestId) {
+        setScanLoading(false)
+      }
+    }
+  }
+
+  const retrySupplementScan = () => {
+    supplementScanRequestIdRef.current += 1
+    setScanCaptured('')
+    setScanError('')
+    setScanLoading(false)
   }
 
   // Get today's supplements
@@ -488,16 +765,22 @@ export default function SupplementsPage() {
         {/* TODAY TAB */}
         {activeTab === 'today' && (
           <div className="space-y-4">
+            {(() => {
+              const todaySummary = getTodaySummary()
+
+              return (
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
                 {new Date().toLocaleDateString('en-GB', { weekday: 'long', month: 'short', day: 'numeric' })}
               </h2>
               {getTodaysSupplements().length > 0 && (
                 <span className="text-sm text-gray-400">
-                  {getTodaysSupplements().filter(s => isTakenToday(s.id)).length} / {getTodaysSupplements().length} taken
+                  {todaySummary.taken} / {todaySummary.scheduled} doses taken
                 </span>
               )}
             </div>
+              )
+            })()}
 
             {getTodaysSupplements().length === 0 ? (
               <div className="text-center py-12 bg-gray-800/50 rounded-2xl border border-gray-700">
@@ -515,6 +798,9 @@ export default function SupplementsPage() {
               <div className="space-y-3">
                 {getTodaysSupplements().map((supplement) => {
                   const taken = isTakenToday(supplement.id)
+                  const takenCount = getTakenDoseCountToday(supplement.id)
+                  const scheduledCount = getScheduledDoseCount(supplement.frequency || 'daily')
+                  const canTakeDose = takenCount < scheduledCount
                   const inventoryStatus = getInventoryStatus(supplement.id)
                   const stats = getWeeklyStats(supplement.id)
                   
@@ -530,12 +816,14 @@ export default function SupplementsPage() {
                       <div className="flex items-start gap-4">
                         {/* Checkbox */}
                         <button
-                          onClick={() => !taken && handleLogDose(supplement)}
-                          disabled={taken}
+                          onClick={() => canTakeDose && handleLogDose(supplement)}
+                          disabled={!canTakeDose}
                           className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                             taken
                               ? 'bg-green-500 text-black'
-                              : 'bg-gray-700 hover:bg-gray-600 border border-gray-600'
+                              : canTakeDose
+                                ? 'bg-gray-700 hover:bg-gray-600 border border-gray-600'
+                                : 'bg-gray-700 text-gray-500 border border-gray-600'
                           }`}
                         >
                           {taken ? (
@@ -549,14 +837,17 @@ export default function SupplementsPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div>
-                              <h3 className={`font-semibold truncate ${taken ? 'text-gray-400 line-through' : 'text-white'}`}>
+                              <h3 className={`font-semibold truncate ${taken ? 'text-gray-400' : 'text-white'}`}>
                                 {supplement.name}
                               </h3>
                               <p className="text-gray-400 text-sm">
                                 {supplement.dose_amount} {supplement.dose_unit}
                                 {supplement.time_of_day && (
-                                  <span className="text-cyan-400"> • {supplement.time_of_day.replace('_', ' ')}</span>
+                                  <span className="text-cyan-400"> • {formatTimeOfDayLabel(supplement.time_of_day)}</span>
                                 )}
+                              </p>
+                              <p className="mt-1 text-xs text-gray-500">
+                                {takenCount} / {scheduledCount} doses taken today
                               </p>
                             </div>
                             
@@ -584,22 +875,30 @@ export default function SupplementsPage() {
                       </div>
                       
                       {/* Actions */}
-                      {!taken && (
-                        <div className="mt-3 pt-3 border-t border-gray-700/50 flex gap-2">
+                      <div className="mt-3 pt-3 border-t border-gray-700/50 flex gap-2">
+                        {canTakeDose && (
                           <button
                             onClick={() => handleLogDose(supplement)}
                             className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-black font-medium py-2 px-3 rounded-xl text-sm transition-colors"
                           >
-                            Take Dose
+                            {scheduledCount > 1 ? 'Log Dose' : 'Take Dose'}
                           </button>
+                        )}
+                        {takenCount > 0 && (
                           <button
-                            onClick={() => handleEdit(supplement)}
-                            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition-colors"
+                            onClick={() => handleUndoDose(supplement)}
+                            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-3 rounded-xl text-sm transition-colors"
                           >
-                            <PencilIcon className="h-4 w-4 text-gray-400" />
+                            Undo Last Dose
                           </button>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={() => handleEdit(supplement)}
+                          className="p-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition-colors"
+                        >
+                          <PencilIcon className="h-4 w-4 text-gray-400" />
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -655,7 +954,7 @@ export default function SupplementsPage() {
                             )}
                           </div>
                           <p className="text-gray-400 text-sm mt-1">
-                            {supplement.dose_amount} {supplement.dose_unit} • {supplement.frequency}
+                            {supplement.dose_amount} {supplement.dose_unit} • {supplement.frequency.replace('_', ' ')}
                           </p>
                         </div>
                         
@@ -830,7 +1129,21 @@ export default function SupplementsPage() {
       {showForm && (
         <div 
           className="fixed inset-0 z-50 flex items-end bg-black/60 px-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
-          onClick={() => setShowForm(false)}
+          onClick={() => {
+            setShowForm(false)
+            setEntryMode('manual')
+            supplementScanRequestIdRef.current += 1
+            setCatalogQuery('')
+            setCatalogResults([])
+            setCatalogLoading(false)
+            setCatalogError('')
+            setBarcodeLookupLoading(false)
+            setBarcodeError('')
+            setBarcodeNotFound(false)
+            setScanError('')
+            setScanCaptured('')
+            setScanLoading(false)
+          }}
         >
           <div 
             className="mx-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-gray-700 bg-gray-900 sm:max-h-[85dvh] sm:rounded-3xl sm:border"
@@ -847,14 +1160,173 @@ export default function SupplementsPage() {
                   {editingSupplement ? 'Edit Supplement' : 'Add Supplement'}
                 </h2>
                 <button 
-                  onClick={() => setShowForm(false)}
+                  onClick={() => {
+                    setShowForm(false)
+                    setEntryMode('manual')
+                    supplementScanRequestIdRef.current += 1
+                    setCatalogQuery('')
+                    setCatalogResults([])
+                    setCatalogLoading(false)
+                    setCatalogError('')
+                    setBarcodeLookupLoading(false)
+                    setBarcodeError('')
+                    setBarcodeNotFound(false)
+                    setScanError('')
+                    setScanCaptured('')
+                    setScanLoading(false)
+                  }}
                   className="flex h-11 w-11 items-center justify-center text-gray-400 hover:text-white"
                 >
                   <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              
-              <form onSubmit={handleSubmit} className="space-y-5">
+
+              <div className="mb-5 grid grid-cols-4 gap-2 rounded-2xl bg-gray-800/60 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode('manual')
+                    supplementScanRequestIdRef.current += 1
+                    setCatalogError('')
+                    setBarcodeError('')
+                    setBarcodeNotFound(false)
+                  }}
+                  className={`min-h-[44px] rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    entryMode === 'manual'
+                      ? 'bg-cyan-500 text-black'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Manual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode('search')
+                    setCatalogError('')
+                    setBarcodeError('')
+                    setBarcodeNotFound(false)
+                  }}
+                  className={`min-h-[44px] rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    entryMode === 'search'
+                      ? 'bg-cyan-500 text-black'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode('barcode')
+                    setCatalogError('')
+                    setBarcodeError('')
+                    setBarcodeNotFound(false)
+                    setBarcodeLookupLoading(false)
+                  }}
+                  className={`min-h-[44px] rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    entryMode === 'barcode'
+                      ? 'bg-cyan-500 text-black'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Barcode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode('scan')
+                    supplementScanRequestIdRef.current += 1
+                    setScanError('')
+                    setScanCaptured('')
+                    setScanLoading(false)
+                  }}
+                  className={`min-h-[44px] rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                    entryMode === 'scan'
+                      ? 'bg-cyan-500 text-black'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Scan Label
+                </button>
+              </div>
+
+              {scanError && (
+                <div className="mb-5 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  {scanError}
+                </div>
+              )}
+
+              {entryMode === 'search' && (
+                <div className="mb-5 space-y-4">
+                  <p className="text-sm text-gray-400">
+                    Search the supplement database first, then fall back to barcode or label scan if needed.
+                  </p>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={catalogQuery}
+                    onChange={(event) => setCatalogQuery(event.target.value)}
+                    placeholder="Search creatine, omega 3, vitamin d..."
+                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 focus:border-cyan-500 focus:outline-none"
+                  />
+
+                  {catalogLoading && <p className="text-sm text-gray-400">Searching...</p>}
+                  {catalogError && <p className="text-sm text-red-400">{catalogError}</p>}
+
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {catalogResults.map((result) => (
+                      <button
+                        key={`${result.source}-${result.id}`}
+                        type="button"
+                        onClick={() => applyCatalogResult(result)}
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 p-3 text-left transition-colors hover:border-cyan-500/30 hover:bg-gray-700"
+                      >
+                        <div className="text-base font-semibold text-white">{result.name}</div>
+                        <div className="mt-1 text-sm text-gray-400">{result.brand || 'No brand listed'}</div>
+                        <div className="mt-2 text-xs text-cyan-400">
+                          {result.dose_amount && result.dose_unit
+                            ? `${result.dose_amount} ${result.dose_unit}`
+                            : 'Dose not available'}
+                        </div>
+                      </button>
+                    ))}
+                    {!catalogLoading && catalogQuery.trim().length >= 2 && catalogResults.length === 0 && !catalogError && (
+                      <div className="space-y-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+                        <p className="text-sm text-yellow-100">No supplement results found.</p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEntryMode('barcode')
+                              setBarcodeError('')
+                              setBarcodeNotFound(false)
+                            }}
+                            className="flex-1 rounded-xl bg-gray-800 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-700"
+                          >
+                            Try Barcode
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEntryMode('scan')
+                              supplementScanRequestIdRef.current += 1
+                              setScanError('')
+                              setScanCaptured('')
+                              setScanLoading(false)
+                            }}
+                            className="flex-1 rounded-xl bg-cyan-500 px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-cyan-400"
+                          >
+                            Scan Label
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className={`space-y-5 ${entryMode === 'scan' || entryMode === 'search' || entryMode === 'barcode' ? 'hidden' : ''}`}>
                 {/* Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">Supplement Name *</label>
@@ -904,6 +1376,8 @@ export default function SupplementsPage() {
                       <option value="capsule">Capsule</option>
                       <option value="tablets">Tablets</option>
                       <option value="tablet">Tablet</option>
+                      <option value="softgels">Softgels</option>
+                      <option value="drops">Drops</option>
                       <option value="g">g (grams)</option>
                       <option value="mg">mg (milligrams)</option>
                       <option value="mcg">mcg (micrograms)</option>
@@ -1000,7 +1474,9 @@ export default function SupplementsPage() {
                     )}
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-2">Time of Day</label>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">
+                        {formData.frequency === 'twice_daily' ? 'First Dose Time' : 'Time of Day'}
+                      </label>
                       <select
                         value={formData.time_of_day}
                         onChange={(e) => setFormData({ ...formData, time_of_day: e.target.value })}
@@ -1011,6 +1487,21 @@ export default function SupplementsPage() {
                         ))}
                       </select>
                     </div>
+
+                    {formData.frequency === 'twice_daily' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-2">Second Dose Time</label>
+                        <select
+                          value={formData.second_time_of_day}
+                          onChange={(e) => setFormData({ ...formData, second_time_of_day: e.target.value })}
+                          className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
+                        >
+                          {TIME_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -1035,6 +1526,110 @@ export default function SupplementsPage() {
                 </button>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showForm && entryMode === 'barcode' && (
+        <div
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setEntryMode('manual')}
+        >
+          <div
+            className="my-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4 sm:max-h-[85dvh]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Scan Supplement Barcode</h2>
+                <p className="text-sm text-gray-400">Point the camera at the supplement barcode.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEntryMode('manual')}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-700 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <BarcodeScanner
+              active={showForm && entryMode === 'barcode' && !barcodeLookupLoading}
+              onDetected={handleSupplementBarcodeDetected}
+              onError={() => setBarcodeError('Unable to access camera. Check browser permissions and HTTPS.')}
+            />
+
+            {barcodeLookupLoading && <p className="mt-3 text-sm text-gray-400">Looking up supplement...</p>}
+            {barcodeError && <p className="mt-3 text-sm text-red-400">{barcodeError}</p>}
+            {barcodeNotFound && (
+              <div className="mt-4 space-y-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+                <p className="text-sm text-yellow-100">Supplement not found in the barcode database.</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEntryMode('search')
+                      setCatalogError('')
+                    }}
+                    className="flex-1 rounded-xl bg-gray-700 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-600"
+                  >
+                    Search Instead
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEntryMode('scan')
+                      supplementScanRequestIdRef.current += 1
+                      setScanError('')
+                      setScanCaptured('')
+                      setScanLoading(false)
+                    }}
+                    className="flex-1 rounded-xl bg-cyan-500 px-3 py-2 text-sm font-medium text-black transition-colors hover:bg-cyan-400"
+                  >
+                    Scan Label
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showForm && entryMode === 'scan' && (
+        <div
+          className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 p-3 pt-[max(12px,env(safe-area-inset-top))] pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
+          onClick={() => setEntryMode('manual')}
+        >
+          <div
+            className="my-auto max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-4 sm:max-h-[85dvh]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Scan Supplement Label</h2>
+                <p className="text-sm text-gray-400">Take a clear photo of the label for dose extraction.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEntryMode('manual')}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-700 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <CameraCapturePanel
+              active={showForm && entryMode === 'scan'}
+              capturedImage={scanCaptured}
+              error={scanError}
+              loading={scanLoading}
+              loadingText="Analyzing label..."
+              captureLabel="Take Photo 📸"
+              onCapture={handleSupplementScan}
+              onRetry={retrySupplementScan}
+              onFallback={() => setEntryMode('manual')}
+              fallbackLabel="Enter Manually"
+            />
           </div>
         </div>
       )}

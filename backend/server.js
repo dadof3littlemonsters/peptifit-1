@@ -6,15 +6,22 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 const path = require('path');
+const { spawn } = require('child_process');
 const createFoodRouter = require('./routes/food');
+const createAiRouter = require('./routes/ai');
+
+const OPEN_FOOD_FACTS_USER_AGENT = 'PeptiFit/1.0 (https://peptifit.trotters-stuff.uk)';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'peptifit-secret-key-change-in-production';
+const COFID_REFRESH_KEY = process.env.COFID_REFRESH_KEY || 'peptifit-cofid-refresh-key-change-in-production';
+const COFID_REFRESH_CRON = process.env.COFID_REFRESH_CRON || '';
+let cofidRefreshInProgress = false;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // Database setup
 const dbPath = path.join(__dirname, 'data', 'peptifit.sqlite');
@@ -111,7 +118,11 @@ db.serialize(() => {
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    brand TEXT,
     dosage TEXT,
+    dose_amount REAL,
+    dose_unit TEXT,
+    servings_per_container INTEGER,
     frequency TEXT,
     time_of_day TEXT,
     notes TEXT,
@@ -163,6 +174,41 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS scanned_foods (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    source TEXT,
+    name TEXT NOT NULL,
+    brand TEXT,
+    calories_per_100g REAL,
+    protein_per_100g REAL,
+    carbs_per_100g REAL,
+    fat_per_100g REAL,
+    fibre_per_100g REAL,
+    serving_size_g REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS cofid_foods (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE,
+    name TEXT NOT NULL,
+    category TEXT,
+    serving_size_g REAL,
+    calories_per_100g REAL,
+    protein_per_100g REAL,
+    carbs_per_100g REAL,
+    fat_per_100g REAL,
+    fibre_per_100g REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  db.run('CREATE INDEX IF NOT EXISTS idx_cofid_foods_name ON cofid_foods(name)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_cofid_foods_category ON cofid_foods(category)');
 
   // Blood results table
   db.run(`CREATE TABLE IF NOT EXISTS blood_results (
@@ -311,6 +357,32 @@ db.serialize(() => {
       });
     }
   });
+
+  db.all(`PRAGMA table_info(supplements)`, (err, columns) => {
+    if (err) {
+      console.error('Error inspecting supplements schema:', err);
+      return;
+    }
+
+    const requiredColumns = [
+      ['brand', 'TEXT'],
+      ['dose_amount', 'REAL'],
+      ['dose_unit', 'TEXT'],
+      ['servings_per_container', 'INTEGER']
+    ];
+
+    requiredColumns.forEach(([columnName, columnType]) => {
+      if (columns.some((column) => column.name === columnName)) {
+        return;
+      }
+
+      db.run(`ALTER TABLE supplements ADD COLUMN ${columnName} ${columnType}`, (alterErr) => {
+        if (alterErr) {
+          console.error(`Error adding ${columnName} to supplements:`, alterErr);
+        }
+      });
+    });
+  });
 });
 
 // Authentication middleware
@@ -330,6 +402,213 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+const requireCofidRefreshKey = (req, res, next) => {
+  const providedKey = req.headers['x-cofid-refresh-key'] || req.body?.key;
+
+  if (!providedKey || providedKey !== COFID_REFRESH_KEY) {
+    return res.status(403).json({ error: 'Invalid CoFID refresh key' });
+  }
+
+  next();
+};
+
+const runCofidRefresh = ({ skipDownload = false } = {}) => new Promise((resolve, reject) => {
+  if (cofidRefreshInProgress) {
+    reject(Object.assign(new Error('CoFID refresh already in progress'), { statusCode: 409 }));
+    return;
+  }
+
+  cofidRefreshInProgress = true;
+
+  const args = ['scripts/update-cofid.js'];
+
+  if (skipDownload) {
+    args.push('--skip-download');
+  }
+
+  const child = spawn('node', args, {
+    cwd: __dirname,
+    env: process.env
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  child.on('error', (error) => {
+    cofidRefreshInProgress = false;
+    reject(error);
+  });
+
+  child.on('close', (code) => {
+    cofidRefreshInProgress = false;
+
+    if (code === 0) {
+      resolve({
+        message: 'CoFID refresh complete',
+        skippedDownload: skipDownload,
+        output: stdout.trim()
+      });
+      return;
+    }
+
+    reject(Object.assign(new Error(stderr.trim() || stdout.trim() || `CoFID refresh failed with exit code ${code}`), {
+      statusCode: 500
+    }));
+  });
+});
+
+const parseNullableNumber = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeDoseUnit = (unit) => {
+  const normalized = String(unit || '').trim().toLowerCase();
+  const mapping = {
+    capsule: 'capsules',
+    capsules: 'capsules',
+    tablet: 'tablets',
+    tablets: 'tablets',
+    softgel: 'softgels',
+    softgels: 'softgels',
+    scoop: 'scoops',
+    scoops: 'scoops',
+    ml: 'ml',
+    drop: 'drops',
+    drops: 'drops'
+  };
+
+  return mapping[normalized] || null;
+};
+
+const parseServingDose = (servingSize) => {
+  const text = String(servingSize || '').trim().toLowerCase();
+  const match = text.match(/(\d+(?:[\.,]\d+)?)\s*(capsules?|tablets?|softgels?|scoops?|ml|drops?)/i);
+
+  if (!match) {
+    return { dose_amount: null, dose_unit: null };
+  }
+
+  return {
+    dose_amount: parseNullableNumber(match[1].replace(',', '.')),
+    dose_unit: normalizeDoseUnit(match[2])
+  };
+};
+
+const parseServingsPerContainer = (quantity, servingDose) => {
+  const text = String(quantity || '').trim().toLowerCase();
+  const match = text.match(/(\d+(?:[\.,]\d+)?)\s*(capsules?|tablets?|softgels?|scoops?|ml|drops?)/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const totalAmount = parseNullableNumber(match[1].replace(',', '.'));
+  const totalUnit = normalizeDoseUnit(match[2]);
+
+  if (totalAmount === null || !totalUnit || !servingDose?.dose_amount || !servingDose?.dose_unit) {
+    return null;
+  }
+
+  if (totalUnit !== servingDose.dose_unit) {
+    return null;
+  }
+
+  return Math.round((totalAmount / servingDose.dose_amount) * 100) / 100;
+};
+
+const summarizeIngredients = (ingredientsText) => {
+  const text = String(ingredientsText || '').trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+};
+
+const normalizeSupplementCatalogProduct = (product, codeOverride) => {
+  if (!product || !product.product_name) {
+    return null;
+  }
+
+  const servingDose = parseServingDose(product.serving_size);
+
+  return {
+    id: String(codeOverride || product.code || ''),
+    source: 'off-supplement',
+    name: product.product_name,
+    brand: product.brands || null,
+    dose_amount: servingDose.dose_amount,
+    dose_unit: servingDose.dose_unit,
+    servings_per_container: parseServingsPerContainer(product.quantity, servingDose),
+    ingredients: summarizeIngredients(product.ingredients_text),
+    directions: null,
+    image_url: product.image_small_url || null
+  };
+};
+
+async function fetchOffJson(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': OPEN_FOOD_FACTS_USER_AGENT,
+        Accept: 'application/json'
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Open Food Facts request failed with status ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function searchSupplementCatalog(query) {
+  const url = new URL('https://world.openfoodfacts.org/cgi/search.pl');
+  url.searchParams.set('search_terms', query);
+  url.searchParams.set('json', '1');
+  url.searchParams.set('page_size', '12');
+  url.searchParams.set('fields', 'code,product_name,brands,serving_size,ingredients_text,quantity,image_small_url');
+  url.searchParams.set('lc', 'en');
+
+  const data = await fetchOffJson(url.toString());
+
+  return (data.products || [])
+    .map(normalizeSupplementCatalogProduct)
+    .filter(Boolean);
+}
+
+async function lookupSupplementBarcode(code) {
+  const url = `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(code)}.json`;
+  const data = await fetchOffJson(url);
+
+  if (data.status === 0 || !data.product) {
+    return null;
+  }
+
+  return normalizeSupplementCatalogProduct(data.product, code);
+}
 
 // Routes
 
@@ -473,7 +752,63 @@ app.delete('/auth/me', authenticateToken, (req, res) => {
   );
 });
 
+app.post('/maintenance/cofid/refresh', authenticateToken, requireCofidRefreshKey, async (req, res) => {
+  try {
+    const result = await runCofidRefresh({
+      skipDownload: Boolean(req.body?.skip_download)
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('CoFID refresh failed:', error);
+    res.status(error.statusCode || 500).json({ error: error.message || 'CoFID refresh failed' });
+  }
+});
+
 app.use('/food', createFoodRouter({ db, authenticateToken, uuidv4 }));
+app.use('/ai', createAiRouter({ authenticateToken }));
+
+if (COFID_REFRESH_CRON) {
+  cron.schedule(COFID_REFRESH_CRON, async () => {
+    try {
+      const result = await runCofidRefresh();
+      console.log('Scheduled CoFID refresh completed:', result.message);
+    } catch (error) {
+      console.error('Scheduled CoFID refresh failed:', error);
+    }
+  });
+}
+
+app.get('/supplements/catalog/search', authenticateToken, async (req, res) => {
+  const query = String(req.query.query || '').trim();
+
+  if (!query) {
+    return res.status(400).json({ error: 'Query is required' });
+  }
+
+  try {
+    const results = await searchSupplementCatalog(query);
+    res.json({ results });
+  } catch (error) {
+    console.error('Supplement catalog search failed:', error);
+    res.status(502).json({ error: 'Failed to reach supplement catalog provider' });
+  }
+});
+
+app.get('/supplements/catalog/barcode/:code', authenticateToken, async (req, res) => {
+  try {
+    const result = await lookupSupplementBarcode(req.params.code);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Supplement not found' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Supplement barcode lookup failed:', error);
+    res.status(502).json({ error: 'Failed to reach supplement catalog provider' });
+  }
+});
 
 // Peptides routes
 app.get('/peptides', authenticateToken, (req, res) => {
@@ -1303,17 +1638,48 @@ app.get('/supplements', authenticateToken, (req, res) => {
 
 // POST /supplements - Create a new supplement
 app.post('/supplements', authenticateToken, (req, res) => {
-  const { name, dosage, frequency, time_of_day, notes } = req.body;
+  const {
+    name,
+    brand,
+    dosage,
+    dose_amount,
+    dose_unit,
+    servings_per_container,
+    frequency,
+    time_of_day,
+    notes
+  } = req.body || {};
 
   if (!name) {
     return res.status(400).json({ error: 'Supplement name is required' });
   }
 
   const id = uuidv4();
+  const normalizedDoseAmount = dose_amount === null || dose_amount === undefined || dose_amount === ''
+    ? null
+    : Number(dose_amount);
+  const normalizedServings = servings_per_container === null || servings_per_container === undefined || servings_per_container === ''
+    ? null
+    : parseInt(servings_per_container, 10);
+  const dosageText = dosage || (normalizedDoseAmount !== null && dose_unit ? `${normalizedDoseAmount} ${dose_unit}` : '');
 
   db.run(
-    'INSERT INTO supplements (id, user_id, name, dosage, frequency, time_of_day, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [id, req.user.userId, name, dosage || '', frequency || '', time_of_day || '', notes || ''],
+    `INSERT INTO supplements
+     (id, user_id, name, brand, dosage, dose_amount, dose_unit, servings_per_container, frequency, time_of_day, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      req.user.userId,
+      name,
+      brand || '',
+      dosageText,
+      Number.isFinite(normalizedDoseAmount) ? normalizedDoseAmount : null,
+      dose_unit || '',
+      Number.isFinite(normalizedServings) ? normalizedServings : null,
+      frequency || '',
+      time_of_day || '',
+      notes || ''
+    ],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to create supplement' });
@@ -1325,15 +1691,49 @@ app.post('/supplements', authenticateToken, (req, res) => {
 
 // PUT /supplements/:id - Update an existing supplement
 app.put('/supplements/:id', authenticateToken, (req, res) => {
-  const { name, dosage, frequency, time_of_day, notes, is_active } = req.body;
+  const {
+    name,
+    brand,
+    dosage,
+    dose_amount,
+    dose_unit,
+    servings_per_container,
+    frequency,
+    time_of_day,
+    notes,
+    is_active
+  } = req.body || {};
 
   if (!name) {
     return res.status(400).json({ error: 'Supplement name is required' });
   }
 
+  const normalizedDoseAmount = dose_amount === null || dose_amount === undefined || dose_amount === ''
+    ? null
+    : Number(dose_amount);
+  const normalizedServings = servings_per_container === null || servings_per_container === undefined || servings_per_container === ''
+    ? null
+    : parseInt(servings_per_container, 10);
+  const dosageText = dosage || (normalizedDoseAmount !== null && dose_unit ? `${normalizedDoseAmount} ${dose_unit}` : '');
+
   db.run(
-    'UPDATE supplements SET name = ?, dosage = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ? WHERE id = ? AND user_id = ?',
-    [name, dosage || '', frequency || '', time_of_day || '', notes || '', is_active !== undefined ? is_active : 1, req.params.id, req.user.userId],
+    `UPDATE supplements
+     SET name = ?, brand = ?, dosage = ?, dose_amount = ?, dose_unit = ?, servings_per_container = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ?
+     WHERE id = ? AND user_id = ?`,
+    [
+      name,
+      brand || '',
+      dosageText,
+      Number.isFinite(normalizedDoseAmount) ? normalizedDoseAmount : null,
+      dose_unit || '',
+      Number.isFinite(normalizedServings) ? normalizedServings : null,
+      frequency || '',
+      time_of_day || '',
+      notes || '',
+      is_active !== undefined ? is_active : 1,
+      req.params.id,
+      req.user.userId
+    ],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to update supplement' });
@@ -1366,10 +1766,10 @@ app.delete('/supplements/:id', authenticateToken, (req, res) => {
 // POST /supplements/:id/log - Log a supplement dose
 app.post('/supplements/:id/log', authenticateToken, (req, res) => {
   const supplementId = req.params.id;
-  const { notes } = req.body;
+  const { notes, taken_at } = req.body || {};
 
   const id = uuidv4();
-  const takenAt = new Date().toISOString();
+  const takenAt = taken_at || new Date().toISOString();
 
   db.run(
     'INSERT INTO supplement_logs (id, supplement_id, user_id, taken_at, notes) VALUES (?, ?, ?, ?, ?)',
@@ -1388,8 +1788,10 @@ app.get('/supplements/:id/logs', authenticateToken, (req, res) => {
   const { limit = 50, offset = 0 } = req.query;
 
   db.all(
-    `SELECT * FROM supplement_logs
-     WHERE supplement_id = ? AND user_id = ?
+    `SELECT l.*, s.dose_amount, s.dose_unit
+     FROM supplement_logs l
+     JOIN supplements s ON s.id = l.supplement_id
+     WHERE l.supplement_id = ? AND l.user_id = ?
      ORDER BY taken_at DESC
      LIMIT ? OFFSET ?`,
     [req.params.id, req.user.userId, parseInt(limit), parseInt(offset)],
@@ -1398,6 +1800,26 @@ app.get('/supplements/:id/logs', authenticateToken, (req, res) => {
         return res.status(500).json({ error: 'Failed to fetch supplement logs' });
       }
       res.json(rows);
+    }
+  );
+});
+
+// DELETE /supplements/:id/logs/:logId - Remove a supplement log entry
+app.delete('/supplements/:id/logs/:logId', authenticateToken, (req, res) => {
+  db.run(
+    `DELETE FROM supplement_logs
+     WHERE id = ? AND supplement_id = ? AND user_id = ?`,
+    [req.params.logId, req.params.id, req.user.userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to delete supplement log' });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Supplement log not found' });
+      }
+
+      res.json({ message: 'Supplement log deleted successfully' });
     }
   );
 });
@@ -1444,7 +1866,7 @@ app.get('/meals', authenticateToken, (req, res) => {
 
 // POST /meals - Add a meal
 app.post('/meals', authenticateToken, (req, res) => {
-  const { meal_type, food_name, calories, protein, carbs, fat } = req.body;
+  const { meal_type, food_name, calories, protein, carbs, fat, logged_at } = req.body;
   
   if (!meal_type || !food_name || calories === undefined) {
     return res.status(400).json({ error: 'meal_type, food_name, and calories are required' });
@@ -1453,8 +1875,8 @@ app.post('/meals', authenticateToken, (req, res) => {
   const id = uuidv4();
   
   db.run(
-    'INSERT INTO meals (id, user_id, meal_type, food_name, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, req.user.userId, meal_type, food_name, calories, protein || 0, carbs || 0, fat || 0],
+    'INSERT INTO meals (id, user_id, meal_type, food_name, calories, protein, carbs, fat, logged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, req.user.userId, meal_type, food_name, calories, protein || 0, carbs || 0, fat || 0, logged_at || new Date().toISOString()],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to add meal' });
@@ -1507,15 +1929,26 @@ app.delete('/meals/:id', authenticateToken, (req, res) => {
 // GET /meals/frequent-foods - Get frequently logged foods
 app.get('/meals/frequent-foods', authenticateToken, (req, res) => {
   const limit = parseInt(req.query.limit) || 20;
+  const mealType = req.query.meal_type;
+  const params = [req.user.userId];
+  let sql = `SELECT food_name, calories, protein, carbs, fat, meal_type, COUNT(*) as count
+     FROM meals 
+     WHERE user_id = ?`;
+
+  if (mealType) {
+    sql += ' AND meal_type = ?';
+    params.push(mealType);
+  }
+
+  sql += `
+     GROUP BY food_name, calories, protein, carbs, fat, meal_type
+     ORDER BY count DESC, MAX(logged_at) DESC
+     LIMIT ?`;
+  params.push(limit);
   
   db.all(
-    `SELECT food_name, calories, protein, carbs, fat, COUNT(*) as count
-     FROM meals 
-     WHERE user_id = ?
-     GROUP BY food_name, calories
-     ORDER BY count DESC, MAX(logged_at) DESC
-     LIMIT ?`,
-    [req.user.userId, limit],
+    sql,
+    params,
     (err, rows) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to fetch frequent foods' });
@@ -1678,6 +2111,26 @@ app.post('/blood-results/:id/analyze', authenticateToken, (req, res) => {
           });
         }
       );
+    }
+  );
+});
+
+// DELETE /blood-results/:id - Delete a blood test result
+app.delete('/blood-results/:id', authenticateToken, (req, res) => {
+  db.run(
+    'DELETE FROM blood_results WHERE id = ? AND user_id = ?',
+    [req.params.id, req.user.userId],
+    function(err) {
+      if (err) {
+        console.error('Error deleting blood result:', err);
+        return res.status(500).json({ error: 'Failed to delete blood result' });
+      }
+
+      if (!this.changes) {
+        return res.status(404).json({ error: 'Blood result not found' });
+      }
+
+      res.json({ message: 'Blood result deleted successfully' });
     }
   );
 });

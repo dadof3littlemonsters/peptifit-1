@@ -292,6 +292,28 @@ CREATE TABLE IF NOT EXISTS supplement_doses (
 );
 
 -- ============================================
+-- FOOD SEARCH DATASETS
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS cofid_foods (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE,
+    name TEXT NOT NULL,
+    category TEXT,
+    serving_size_g REAL,
+    calories_per_100g REAL,
+    protein_per_100g REAL,
+    carbs_per_100g REAL,
+    fat_per_100g REAL,
+    fibre_per_100g REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_cofid_foods_name ON cofid_foods(name);
+CREATE INDEX IF NOT EXISTS idx_cofid_foods_category ON cofid_foods(category);
+
+-- ============================================
 -- VITALS MODULE (Time-series data)
 -- ============================================
 

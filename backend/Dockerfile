@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     make \
     g++ \
     sqlite3 \
+    poppler-utils \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files

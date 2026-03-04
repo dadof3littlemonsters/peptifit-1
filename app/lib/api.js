@@ -233,6 +233,18 @@ export const supplements = {
     return response.data;
   },
 
+  searchCatalog: async (query) => {
+    const response = await api.get('/supplements/catalog/search', {
+      params: { query }
+    });
+    return response.data;
+  },
+
+  lookupBarcode: async (code) => {
+    const response = await api.get(`/supplements/catalog/barcode/${code}`);
+    return response.data;
+  },
+
   create: async (supplementData) => {
     const response = await api.post('/supplements', supplementData);
     return response.data;
@@ -258,6 +270,11 @@ export const supplements = {
     const response = await api.get(`/supplements/${id}/logs`, {
       params: { limit, offset }
     });
+    return response.data;
+  },
+
+  deleteLog: async (id, logId) => {
+    const response = await api.delete(`/supplements/${id}/logs/${logId}`);
     return response.data;
   }
 };
@@ -316,6 +333,29 @@ export const bloodResults = {
   analyze: async (id) => {
     const response = await api.post(`/blood-results/${id}/analyze`);
     return response.data;
+  },
+
+  coach: async (payload) => {
+    const response = await api.post('/ai/blood-results-coach', payload);
+    return response.data;
+  },
+
+  delete: async (id) => {
+    const response = await api.delete(`/blood-results/${id}`);
+    return response.data;
+  },
+
+  extractDocument: async (file) => {
+    const response = await api.post('/ai/extract-blood-panel', file, {
+      headers: {
+        'Content-Type': file?.type || (file?.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+        'X-File-Name': encodeURIComponent(file?.name || 'upload')
+      },
+      timeout: 180000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    });
+    return response.data;
   }
 };
 
@@ -352,9 +392,9 @@ export const meals = {
   },
 
   // Get frequent foods for quick add
-  getFrequentFoods: async (limit = 20) => {
+  getFrequentFoods: async (limit = 20, mealType) => {
     const response = await api.get('/meals/frequent-foods', {
-      params: { limit }
+      params: { limit, meal_type: mealType }
     });
     return response.data;
   },
@@ -370,20 +410,47 @@ export const meals = {
 };
 
 export const food = {
-  search: async (query) => {
+  search: async (query, config = {}) => {
+    const { params, ...requestConfig } = config;
     const response = await api.get('/food/search', {
-      params: { query }
+      ...requestConfig,
+      params: {
+        ...(params || {}),
+        query
+      }
     });
     return response.data;
   },
 
-  lookupBarcode: async (code) => {
-    const response = await api.get(`/food/barcode/${code}`);
+  lookupBarcode: async (code, config = {}) => {
+    const response = await api.get(`/food/barcode/${code}`, config);
     return response.data;
   },
 
   log: async (foodData) => {
     const response = await api.post('/food/log', foodData);
+    return response.data;
+  },
+
+  saveToLibrary: async (foodData) => {
+    const response = await api.post('/food/library', foodData);
+    return response.data;
+  },
+
+  getLibrary: async (limit = 20) => {
+    const response = await api.get('/food/library', {
+      params: { limit }
+    });
+    return response.data;
+  },
+
+  updateLibraryItem: async (id, foodData) => {
+    const response = await api.put(`/food/library/${id}`, foodData);
+    return response.data;
+  },
+
+  deleteLibraryItem: async (id) => {
+    const response = await api.delete(`/food/library/${id}`);
     return response.data;
   },
 
@@ -396,6 +463,18 @@ export const food = {
 
   deleteLog: async (id) => {
     const response = await api.delete(`/food/log/${id}`);
+    return response.data;
+  }
+};
+
+export const ai = {
+  scanNutritionLabel: async (base64Image) => {
+    const response = await api.post('/ai/scan-nutrition-label', { image: base64Image });
+    return response.data;
+  },
+
+  scanSupplementLabel: async (base64Image) => {
+    const response = await api.post('/ai/scan-supplement-label', { image: base64Image });
     return response.data;
   }
 };

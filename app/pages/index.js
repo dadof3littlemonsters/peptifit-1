@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { doses, peptideConfigs, peptides, vitals, meals, food, bloodResults } from '../lib/api'
+import { doses, peptideConfigs, peptides, vitals, meals, food, bloodResults, supplements } from '../lib/api'
 import Link from 'next/link'
 import BottomNav from '../components/BottomNav'
 import {
-  formatPeptideFrequencyLabel,
   isPeptideConfigDueOnDate,
   isPeptideTakenOnDate,
   isPrnPeptideConfig
@@ -17,6 +16,7 @@ import {
 
 // Default calorie goal
 const DEFAULT_CALORIE_GOAL = 2500
+const DASHBOARD_TIME_CUTOFF_HOUR = 13
 
 const DASHBOARD_STATUS_COLORS = {
   normal: 'bg-green-500/20 text-green-400',
@@ -110,7 +110,7 @@ function StatRow({ icon, label, value, color }) {
   )
 }
 
-function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
+function CalorieRing({ consumed, goal, exerciseCalories = 0, href = null }) {
   const remaining = goal - consumed + exerciseCalories
   const percent = Math.min((consumed / goal) * 100, 100)
   const radius = 54
@@ -118,7 +118,7 @@ function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
   const offset = circumference - (percent / 100) * circumference
   const isOver = remaining < 0
 
-  return (
+  const content = (
     <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
       <div className="flex items-center gap-5">
         <div className="relative flex-shrink-0">
@@ -153,6 +153,20 @@ function CalorieRing({ consumed, goal, exerciseCalories = 0 }) {
       </div>
     </div>
   )
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-2xl transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+        aria-label="Open food diary"
+      >
+        {content}
+      </Link>
+    )
+  }
+
+  return content
 }
 
 function MacroBar({ protein, carbs, fat }) {
@@ -191,12 +205,137 @@ function MacroBar({ protein, carbs, fat }) {
   )
 }
 
-function PeptideDoseCard({ userStack, recentDoses }) {
+function isSupplementScheduledForToday(supplement) {
+  const today = new Date().getDay()
+  const freq = supplement?.frequency || 'daily'
+
+  if (freq === 'daily' || freq === 'twice_daily') return true
+  if (freq === 'weekly') return true
+  if (freq === 'weekdays') return today >= 1 && today <= 5
+  if (freq === 'weekends') return today === 0 || today === 6
+
+  return true
+}
+
+function isMorningSideTimeLabel(value) {
+  return ['morning', 'with_breakfast', 'before_lunch'].includes(value)
+}
+
+function isLaterSideTimeLabel(value) {
+  return ['with_lunch', 'afternoon', 'with_dinner', 'evening', 'before_bed'].includes(value)
+}
+
+function getDashboardTimeWindow(now = new Date()) {
+  return now.getHours() < DASHBOARD_TIME_CUTOFF_HOUR ? 'morning' : 'later'
+}
+
+function isTimeInDashboardWindow(dateValue, now = new Date()) {
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) {
+    return true
+  }
+
+  const targetWindow = getDashboardTimeWindow(now)
+  return targetWindow === 'morning'
+    ? date.getHours() < DASHBOARD_TIME_CUTOFF_HOUR
+    : date.getHours() >= DASHBOARD_TIME_CUTOFF_HOUR
+}
+
+function getSupplementVisibleTimes(timeOfDay, now = new Date()) {
+  const labels = String(timeOfDay || '')
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (labels.length === 0 || labels.includes('anytime')) {
+    return ['anytime']
+  }
+
+  const targetWindow = getDashboardTimeWindow(now)
+
+  return labels.filter((label) => (
+    targetWindow === 'morning' ? isMorningSideTimeLabel(label) : isLaterSideTimeLabel(label)
+  ))
+}
+
+function getSupplementScheduledDoseCountForWindow(supplement, now = new Date()) {
+  const visibleTimes = getSupplementVisibleTimes(supplement?.time_of_day, now)
+  return visibleTimes.length > 0 ? visibleTimes.length : 0
+}
+
+function getSupplementTakenDoseCountForWindow(supplementId, supplementLogs, now = new Date()) {
+  const todayKey = now.toDateString()
+  return (supplementLogs[supplementId] || []).filter((log) => (
+    new Date(log.taken_at).toDateString() === todayKey && isTimeInDashboardWindow(log.taken_at, now)
+  )).length
+}
+
+function getPeptideVisibleDoseSlots(config, now = new Date()) {
+  const dosesForConfig = Array.isArray(config?.doses) && config.doses.length > 0 ? config.doses : [{ amount: '', unit: 'mg', time: '08:00' }]
+  const targetWindow = getDashboardTimeWindow(now)
+
+  return dosesForConfig.filter((dose) => {
+    if (!dose?.time) {
+      return true
+    }
+
+    const hour = Number(String(dose.time).split(':')[0])
+    if (!Number.isFinite(hour)) {
+      return true
+    }
+
+    return targetWindow === 'morning'
+      ? hour < DASHBOARD_TIME_CUTOFF_HOUR
+      : hour >= DASHBOARD_TIME_CUTOFF_HOUR
+  })
+}
+
+function getPeptideTakenDoseCountForWindow(config, dosesList, now = new Date()) {
+  const todayKey = now.toDateString()
+  return dosesList.filter((dose) => {
+    if (!(config.id && dose.config_id ? dose.config_id === config.id : dose.peptide_id === config.peptide_id)) {
+      return false
+    }
+
+    return new Date(dose.administration_time).toDateString() === todayKey
+      && isTimeInDashboardWindow(dose.administration_time, now)
+  }).length
+}
+
+function formatPeptideTimes(config) {
+  const visibleSlots = getPeptideVisibleDoseSlots(config)
+  return visibleSlots
+    .map((dose) => dose?.time)
+    .filter(Boolean)
+    .join(' + ')
+}
+
+function getNextPeptideDoseSlotForWindow(config, dosesList, now = new Date()) {
+  const visibleSlots = getPeptideVisibleDoseSlots(config, now)
+  if (visibleSlots.length === 0) {
+    return null
+  }
+
+  const takenCount = getPeptideTakenDoseCountForWindow(config, dosesList, now)
+  return visibleSlots[Math.min(takenCount, visibleSlots.length - 1)] || visibleSlots[0]
+}
+
+function formatSupplementTimeLabel(timeOfDay) {
+  return getSupplementVisibleTimes(timeOfDay)
+    .map((part) => part.replaceAll('_', ' '))
+    .join(' + ')
+}
+
+function PeptideDoseCard({ userStack, recentDoses, loggingPeptideId, onLogPeptide }) {
   if (!userStack || userStack.length === 0) return null
 
   const todaysConfigs = userStack.filter((config) => {
     if (isPrnPeptideConfig(config)) return false
-    return isPeptideConfigDueOnDate(config, recentDoses, new Date()) || isPeptideTakenOnDate(config, recentDoses, new Date())
+    if (!(isPeptideConfigDueOnDate(config, recentDoses, new Date()) || isPeptideTakenOnDate(config, recentDoses, new Date()))) {
+      return false
+    }
+
+    return getPeptideVisibleDoseSlots(config).length > 0
   })
 
   if (todaysConfigs.length === 0) return null
@@ -207,23 +346,127 @@ function PeptideDoseCard({ userStack, recentDoses }) {
         <span className="text-white font-semibold text-sm">Peptides Today</span>
         <Link href="/schedule" className="text-cyan-400 text-xs">View all →</Link>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {todaysConfigs.map((item) => {
-          const dosed = isPeptideTakenOnDate(item, recentDoses, new Date())
-          const label = item.peptide_name || item.peptide_id
+      <div className="flex flex-col gap-2">
+        {todaysConfigs.map((config) => {
+          const label = config.peptide_name || config.peptide?.name || config.peptide_id
+          const visibleSlots = getPeptideVisibleDoseSlots(config)
+          const scheduledCount = visibleSlots.length
+          const takenCount = Math.min(getPeptideTakenDoseCountForWindow(config, recentDoses), scheduledCount)
+          const complete = takenCount >= scheduledCount
 
           return (
             <div
-              key={item.id || item.peptide_id}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
-                dosed
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'bg-gray-700 text-gray-400 border border-gray-600'
+              key={config.id || config.peptide_id}
+              className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
+                complete
+                  ? 'border-green-500/30 bg-green-500/10'
+                  : 'border-gray-700 bg-gray-700/40'
               }`}
             >
-              <span>{dosed ? '✓' : '○'}</span>
-              <span>{label}</span>
-              <span className="text-[10px] opacity-80">{formatPeptideFrequencyLabel(item)}</span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-white">{label}</div>
+                <div className="text-xs text-gray-400">
+                  {visibleSlots.map((dose) => `${dose.amount} ${dose.unit}`.trim()).join(' + ')}
+                  {formatPeptideTimes(config) && (
+                    <span className="text-cyan-400"> • {formatPeptideTimes(config)}</span>
+                  )}
+                </div>
+              </div>
+              <div className="ml-3 flex items-center gap-2">
+                <div className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                  complete ? 'bg-green-500/20 text-green-400' : 'bg-gray-900/60 text-gray-300'
+                }`}>
+                  {takenCount}/{scheduledCount}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onLogPeptide(config)}
+                  disabled={complete || loggingPeptideId === config.id}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
+                    complete
+                      ? 'border-green-500/30 bg-green-500/20 text-green-400'
+                      : loggingPeptideId === config.id
+                        ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+                        : 'border-gray-600 bg-gray-900/70 text-white hover:border-cyan-500/40 hover:bg-gray-700'
+                  }`}
+                  aria-label={`Mark ${label} as taken`}
+                >
+                  {complete ? '✓' : loggingPeptideId === config.id ? '…' : '+'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SupplementsTodayCard({ supplementsList, supplementLogs, loggingSupplementId, onLogSupplement }) {
+  const todaysSupplements = supplementsList.filter((supplement) => (
+    isSupplementScheduledForToday(supplement)
+      && getSupplementScheduledDoseCountForWindow(supplement) > 0
+  ))
+
+  if (todaysSupplements.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="bg-gray-800 rounded-2xl p-4 mx-4 mt-3">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-white font-semibold text-sm">Supplements Today</span>
+        <Link href="/supplements" className="text-cyan-400 text-xs">View all →</Link>
+      </div>
+      <div className="flex flex-col gap-2">
+        {todaysSupplements.map((supplement) => {
+          const takenCount = Math.min(
+            getSupplementTakenDoseCountForWindow(supplement.id, supplementLogs),
+            getSupplementScheduledDoseCountForWindow(supplement)
+          )
+          const scheduledCount = getSupplementScheduledDoseCountForWindow(supplement)
+          const complete = takenCount >= scheduledCount
+
+          return (
+            <div
+              key={supplement.id}
+              className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
+                complete
+                  ? 'border-green-500/30 bg-green-500/10'
+                  : 'border-gray-700 bg-gray-700/40'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-white">{supplement.name}</div>
+                <div className="text-xs text-gray-400">
+                  {supplement.dose_amount} {supplement.dose_unit}
+                  {formatSupplementTimeLabel(supplement.time_of_day) && (
+                    <span className="text-cyan-400"> • {formatSupplementTimeLabel(supplement.time_of_day)}</span>
+                  )}
+                </div>
+              </div>
+              <div className="ml-3 flex items-center gap-2">
+                <div className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                  complete ? 'bg-green-500/20 text-green-400' : 'bg-gray-900/60 text-gray-300'
+                }`}>
+                  {Math.min(takenCount, scheduledCount)}/{scheduledCount}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onLogSupplement(supplement)}
+                  disabled={complete || loggingSupplementId === supplement.id}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
+                    complete
+                      ? 'border-green-500/30 bg-green-500/20 text-green-400'
+                      : loggingSupplementId === supplement.id
+                        ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+                        : 'border-gray-600 bg-gray-900/70 text-white hover:border-cyan-500/40 hover:bg-gray-700'
+                  }`}
+                  aria-label={`Mark ${supplement.name} as taken`}
+                >
+                  {complete ? '✓' : loggingSupplementId === supplement.id ? '…' : '+'}
+                </button>
+              </div>
             </div>
           )
         })}
@@ -236,6 +479,10 @@ export default function LandingDashboard({ user }) {
   const [recentDoses, setRecentDoses] = useState([])
   const [availablePeptides, setAvailablePeptides] = useState([])
   const [userStack, setUserStack] = useState([])
+  const [supplementsList, setSupplementsList] = useState([])
+  const [supplementLogs, setSupplementLogs] = useState({})
+  const [loggingPeptideId, setLoggingPeptideId] = useState(null)
+  const [loggingSupplementId, setLoggingSupplementId] = useState(null)
   const [vitalsData, setVitalsData] = useState([])
   const [latestVitals, setLatestVitals] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -383,17 +630,31 @@ export default function LandingDashboard({ user }) {
 
   const loadDashboardData = async () => {
     try {
-      const [dosesData, peptidesData, peptideConfigData, vitalsLatest, bloodPanels] = await Promise.all([
+      const [dosesData, peptidesData, peptideConfigData, vitalsLatest, bloodPanels, supplementsData] = await Promise.all([
         doses.getAll(),
         peptides.getAll(),
         peptideConfigs.getAll().catch(() => []),
         vitals.getLatest().catch(() => null),
-        bloodResults.getAll().catch(() => [])
+        bloodResults.getAll().catch(() => []),
+        supplements.getAll().catch(() => [])
       ])
       setRecentDoses(dosesData)
       setAvailablePeptides(peptidesData)
       setUserStack(peptideConfigData || [])
       setLatestBloodResult(Array.isArray(bloodPanels) && bloodPanels.length > 0 ? bloodPanels[0] : null)
+      setSupplementsList(Array.isArray(supplementsData) ? supplementsData : [])
+
+      const supplementLogEntries = await Promise.all(
+        (Array.isArray(supplementsData) ? supplementsData : []).map(async (supplement) => {
+          try {
+            const logs = await supplements.getLogs(supplement.id, { limit: 20 })
+            return [supplement.id, logs]
+          } catch (error) {
+            return [supplement.id, []]
+          }
+        })
+      )
+      setSupplementLogs(Object.fromEntries(supplementLogEntries))
 
       // Load vitals data for dashboard preview
       if (vitalsLatest) {
@@ -405,6 +666,66 @@ export default function LandingDashboard({ user }) {
       console.error('Failed to load dashboard data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDashboardSupplementLog = async (supplement) => {
+    if (!supplement?.id) {
+      return
+    }
+
+    try {
+      setLoggingSupplementId(supplement.id)
+      await supplements.logDose(supplement.id, {
+        dose_amount: supplement.dose_amount || 1,
+        dose_unit: supplement.dose_unit || 'capsule',
+        taken_at: new Date().toISOString()
+      })
+
+      const logs = await supplements.getLogs(supplement.id, { limit: 20 })
+      setSupplementLogs((current) => ({
+        ...current,
+        [supplement.id]: logs
+      }))
+    } catch (error) {
+      console.error('Failed to log supplement from dashboard:', error)
+      alert('Failed to log supplement. Please try again.')
+    } finally {
+      setLoggingSupplementId(null)
+    }
+  }
+
+  const handleDashboardPeptideLog = async (config) => {
+    if (!config?.id) {
+      return
+    }
+
+    try {
+      setLoggingPeptideId(config.id)
+      const nextDose = getNextPeptideDoseSlotForWindow(config, recentDoses) || config.doses?.[0]
+
+      if (!nextDose?.amount) {
+        throw new Error('No configured dose amount found for this peptide')
+      }
+
+      const { peptideDoses } = await import('../lib/api')
+      await peptideDoses.create({
+        peptide_id: config.peptide_id,
+        config_id: config.id,
+        dose_amount: parseFloat(nextDose.amount),
+        dose_unit: nextDose.unit || 'mg',
+        administration_time: new Date().toISOString(),
+        injection_site: null,
+        notes: null
+      })
+
+      const dosesData = await doses.getAll()
+      setRecentDoses(dosesData || [])
+    } catch (error) {
+      console.error('Failed to log peptide from dashboard:', error)
+      alert(error.response?.data?.error || error.message || 'Failed to log peptide. Please try again.')
+    } finally {
+      setLoggingPeptideId(null)
     }
   }
 
@@ -684,13 +1005,24 @@ export default function LandingDashboard({ user }) {
           </div>
         </div>
 
-        <CalorieRing consumed={todayCalories} goal={calorieGoal} />
+        <CalorieRing consumed={todayCalories} goal={calorieGoal} href="/meals" />
         <MacroBar
           protein={todayMacros.protein}
           carbs={todayMacros.carbs}
           fat={todayMacros.fat}
         />
-        <PeptideDoseCard userStack={userStack} recentDoses={recentDoses} />
+        <PeptideDoseCard
+          userStack={userStack}
+          recentDoses={recentDoses}
+          loggingPeptideId={loggingPeptideId}
+          onLogPeptide={handleDashboardPeptideLog}
+        />
+        <SupplementsTodayCard
+          supplementsList={supplementsList}
+          supplementLogs={supplementLogs}
+          loggingSupplementId={loggingSupplementId}
+          onLogSupplement={handleDashboardSupplementLog}
+        />
 
         <div className="mt-4 px-4">
           <div className="space-y-3">
