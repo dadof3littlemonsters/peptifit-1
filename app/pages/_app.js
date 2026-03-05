@@ -4,20 +4,43 @@ import Head from 'next/head'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { auth } from '../lib/api'
+import DesktopNav from '../components/DesktopNav'
+
+const PUBLIC_PAGES = ['/login', '/register']
+
+const getActiveNav = (pathname) => {
+  if (pathname === '/') {
+    return 'dashboard'
+  }
+  if (
+    pathname.startsWith('/schedule') ||
+    pathname.startsWith('/peptides') ||
+    pathname.startsWith('/configure-peptides') ||
+    pathname.startsWith('/log-dose')
+  ) {
+    return 'peptides'
+  }
+  if (pathname.startsWith('/meals') || pathname.startsWith('/food')) {
+    return 'meals'
+  }
+  if (pathname.startsWith('/vitals')) {
+    return 'vitals'
+  }
+  return 'more'
+}
 
 export default function App({ Component, pageProps }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const isPublicPage = PUBLIC_PAGES.includes(router.pathname)
+  const activeNav = getActiveNav(router.pathname)
 
   useEffect(() => {
     let active = true
 
     const currentUser = auth.getCurrentUser()
     const isAuthenticated = auth.isAuthenticated()
-
-    const publicPages = ['/login', '/register']
-    const isPublicPage = publicPages.includes(router.pathname)
 
     // If a redirect is required, fire it and keep the loading spinner visible
     // until the new route mounts. This prevents the target page component
@@ -89,7 +112,12 @@ export default function App({ Component, pageProps }) {
         />
         <meta name="mobile-web-app-capable" content="yes" />
       </Head>
-      <Component {...pageProps} user={user} setUser={setUser} />
+      {!isPublicPage && (
+        <DesktopNav active={activeNav} user={user} />
+      )}
+      <div className={isPublicPage ? '' : 'lg:pl-56'}>
+        <Component {...pageProps} user={user} setUser={setUser} />
+      </div>
     </>
   )
 }
