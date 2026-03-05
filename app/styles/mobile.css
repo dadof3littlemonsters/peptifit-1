@@ -13,36 +13,51 @@ html {
   text-size-adjust: 100%;
 }
 
-html, body {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
 :root {
   --bottom-nav-offset: calc(88px + env(safe-area-inset-bottom));
   --bottom-action-offset: calc(164px + env(safe-area-inset-bottom));
 }
 
-#__next {
-  height: 100vh; /* fallback for older browsers */
-  height: 100dvh; /* modern browsers: adjusts for mobile address bar */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+@media (max-width: 1023px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  #__next {
+    height: 100vh; /* fallback for older browsers */
+    height: 100dvh; /* modern browsers: adjusts for mobile address bar */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Scrollable content area ─────────────────────────────────
+     Every page's <main> should have class="page-content".
+     This is the ONLY element that scrolls on the page.
+  */
+  .page-content {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
 }
 
-/* ── Scrollable content area ─────────────────────────────────
-   Every page's <main> should have class="page-content".
-   This is the ONLY element that scrolls on the page.
-*/
-.page-content {
-  flex: 1 1 0%;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+@media (min-width: 1024px) {
+  html, body {
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  #__next {
+    min-height: 100vh;
+    height: auto;
+    overflow: visible;
+  }
 }
 
 .page-content-nav {
@@ -57,11 +72,13 @@ html, body {
    Only apply 44px minimum to primary interactive elements.
    Use a class for inline/small buttons that need to opt out.
 */
-button,
-[role="button"],
-input[type="submit"],
-input[type="button"] {
-  min-height: 44px;
+@media (max-width: 1023px) {
+  button,
+  [role="button"],
+  input[type="submit"],
+  input[type="button"] {
+    min-height: 44px;
+  }
 }
 
 /* Opt-out class for small inline buttons (sort toggles, badge buttons, etc.) */
@@ -73,10 +90,12 @@ input[type="button"] {
 }
 
 /* Prevent iOS zoom on input focus */
-input,
-select,
-textarea {
-  font-size: 16px !important;
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ── Bottom nav safe area ────────────────────────────────────

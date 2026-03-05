@@ -11,7 +11,7 @@ const NAV_ITEMS = [
 export default function BottomNav({ active }) {
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/95 backdrop-blur-sm border-t border-gray-800"
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-800 bg-gray-900/95 backdrop-blur-sm lg:hidden"
       style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
     >
       <div className="grid grid-cols-5 max-w-lg mx-auto">

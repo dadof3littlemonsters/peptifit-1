@@ -2,6 +2,20 @@ import axios from 'axios';
 
 const TOKEN_KEYS = ['peptifit_token', 'token'];
 const USER_STORAGE_KEY = 'peptifit_user';
+const SETTINGS_FALLBACK_API_URLS = ['/api', 'https://trax.delboysden.uk/api'];
+const ACCOUNT_SETTING_STORAGE_MAP = {
+  weight_unit: 'peptifit_weight_unit',
+  glucose_unit: 'peptifit_glucose_unit',
+  temp_unit: 'peptifit_temp_unit',
+  height_unit: 'peptifit_height_unit',
+  height_cm: 'peptifit_height_cm',
+  height_ft: 'peptifit_height_ft',
+  height_in: 'peptifit_height_in',
+  target_weight: 'peptifit_target_weight',
+  calorie_goal: 'peptifit_calorie_goal',
+  protein_goal: 'peptifit_protein_goal',
+  adherence_goal: 'peptifit_adherence_goal'
+};
 
 const getStoredToken = () => {
   if (typeof window === 'undefined') {
@@ -28,9 +42,85 @@ const clearStoredAuth = () => {
   localStorage.removeItem(USER_STORAGE_KEY);
 };
 
+const mirrorSettingsToLocalStorage = (settings) => {
+  if (typeof window === 'undefined' || !settings) {
+    return;
+  }
+
+  Object.entries(ACCOUNT_SETTING_STORAGE_MAP).forEach(([settingsKey, storageKey]) => {
+    const value = settings[settingsKey];
+    if (value === null || value === undefined || value === '') {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    localStorage.setItem(storageKey, String(value));
+  });
+};
+
+const getBrowserApiBaseUrl = () => {
+  if (typeof window === 'undefined') {
+    return '/api';
+  }
+
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+  if (configured && configured.trim()) {
+    return configured;
+  }
+
+  return '/api';
+};
+
+const requestSettingsWithFallback = async (requestConfig) => {
+  const triedBaseUrls = new Set();
+
+  try {
+    triedBaseUrls.add(String(api.defaults.baseURL || ''));
+    return await api.request(requestConfig);
+  } catch (primaryError) {
+    if (typeof window === 'undefined') {
+      throw primaryError;
+    }
+
+    const token = getStoredToken();
+    if (!token) {
+      throw primaryError;
+    }
+
+    const fallbackBaseUrls = [
+      ...SETTINGS_FALLBACK_API_URLS,
+      `${window.location.origin}/api`
+    ].filter(Boolean);
+
+    let lastError = primaryError;
+
+    for (const baseURL of fallbackBaseUrls) {
+      if (triedBaseUrls.has(baseURL)) {
+        continue;
+      }
+      triedBaseUrls.add(baseURL);
+
+      const fallbackClient = axios.create({
+        baseURL,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      try {
+        return await fallbackClient.request(requestConfig);
+      } catch (fallbackError) {
+        lastError = fallbackError;
+      }
+    }
+
+    throw lastError;
+  }
+};
+
 // API base URL - points directly to backend
-const API_BASE_URL = typeof window !== 'undefined' 
-  ? (process.env.NEXT_PUBLIC_API_URL || 'https://trax.delboysden.uk/api')
+const API_BASE_URL = typeof window !== 'undefined'
+  ? getBrowserApiBaseUrl()
   : '/api';
 
 // Create axios instance
@@ -113,6 +203,37 @@ export const auth = {
   isAuthenticated: () => {
     if (typeof window === 'undefined') return false;
     return !!getStoredToken();
+  },
+
+  getSettings: async () => {
+    const response = await requestSettingsWithFallback({
+      method: 'get',
+      url: '/auth/settings'
+    });
+    return response.data;
+  },
+
+  updateSettings: async (settings) => {
+    const response = await requestSettingsWithFallback({
+      method: 'put',
+      url: '/auth/settings',
+      data: settings
+    });
+    if (response.data?.settings) {
+      mirrorSettingsToLocalStorage(response.data.settings);
+    }
+    return response.data;
+  },
+
+  syncSettingsToLocalStorage: async () => {
+    const response = await requestSettingsWithFallback({
+      method: 'get',
+      url: '/auth/settings'
+    });
+    if (response.data?.settings) {
+      mirrorSettingsToLocalStorage(response.data.settings);
+    }
+    return response.data;
   },
 };
 

@@ -11,6 +11,19 @@ const createFoodRouter = require('./routes/food');
 const createAiRouter = require('./routes/ai');
 
 const OPEN_FOOD_FACTS_USER_AGENT = 'PeptiFit/1.0 (https://peptifit.trotters-stuff.uk)';
+const DEFAULT_ACCOUNT_SETTINGS = {
+  weight_unit: 'kg',
+  glucose_unit: 'mg/dL',
+  temp_unit: 'C',
+  height_unit: 'cm',
+  height_cm: '',
+  height_ft: '',
+  height_in: '',
+  target_weight: '',
+  calorie_goal: 2500,
+  protein_goal: '',
+  adherence_goal: 80
+};
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -383,7 +396,77 @@ db.serialize(() => {
       });
     });
   });
+
+  db.all(`PRAGMA table_info(users)`, (err, columns) => {
+    if (err) {
+      console.error('Error inspecting users schema:', err);
+      return;
+    }
+
+    if (!columns.some((column) => column.name === 'settings_json')) {
+      db.run(`ALTER TABLE users ADD COLUMN settings_json TEXT`, (alterErr) => {
+        if (alterErr) {
+          console.error('Error adding settings_json to users:', alterErr);
+        }
+      });
+    }
+  });
 });
+
+const toOptionalString = (value, maxLength = 32) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value).trim().slice(0, maxLength);
+};
+
+const toPositiveInt = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const toPercent = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(100, Math.max(1, parsed));
+};
+
+function normalizeAccountSettings(input = {}) {
+  const data = input && typeof input === 'object' ? input : {};
+
+  const weightUnits = new Set(['kg', 'lbs', 'st']);
+  const glucoseUnits = new Set(['mg/dL', 'mmol/L']);
+  const tempUnits = new Set(['C', 'F']);
+  const heightUnits = new Set(['cm', 'ft']);
+
+  return {
+    weight_unit: weightUnits.has(data.weight_unit) ? data.weight_unit : DEFAULT_ACCOUNT_SETTINGS.weight_unit,
+    glucose_unit: glucoseUnits.has(data.glucose_unit) ? data.glucose_unit : DEFAULT_ACCOUNT_SETTINGS.glucose_unit,
+    temp_unit: tempUnits.has(data.temp_unit) ? data.temp_unit : DEFAULT_ACCOUNT_SETTINGS.temp_unit,
+    height_unit: heightUnits.has(data.height_unit) ? data.height_unit : DEFAULT_ACCOUNT_SETTINGS.height_unit,
+    height_cm: toOptionalString(data.height_cm, 16),
+    height_ft: toOptionalString(data.height_ft, 8),
+    height_in: toOptionalString(data.height_in, 8),
+    target_weight: toOptionalString(data.target_weight, 16),
+    calorie_goal: toPositiveInt(data.calorie_goal, DEFAULT_ACCOUNT_SETTINGS.calorie_goal),
+    protein_goal: toOptionalString(data.protein_goal, 16),
+    adherence_goal: toPercent(data.adherence_goal, DEFAULT_ACCOUNT_SETTINGS.adherence_goal)
+  };
+}
+
+function parseStoredSettings(settingsJson) {
+  if (!settingsJson) {
+    return { ...DEFAULT_ACCOUNT_SETTINGS };
+  }
+
+  try {
+    return normalizeAccountSettings(JSON.parse(settingsJson));
+  } catch (error) {
+    return { ...DEFAULT_ACCOUNT_SETTINGS };
+  }
+}
 
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -675,6 +758,46 @@ app.post('/auth/login', (req, res) => {
 
       const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
       res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
+    }
+  );
+});
+
+app.get('/auth/settings', authenticateToken, (req, res) => {
+  db.get(
+    'SELECT settings_json FROM users WHERE id = ?',
+    [req.user.userId],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to load settings' });
+      }
+
+      if (!row) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const settings = parseStoredSettings(row.settings_json);
+      return res.json({ settings });
+    }
+  );
+});
+
+app.put('/auth/settings', authenticateToken, (req, res) => {
+  const normalized = normalizeAccountSettings(req.body || {});
+  const settingsJson = JSON.stringify(normalized);
+
+  db.run(
+    'UPDATE users SET settings_json = ? WHERE id = ?',
+    [settingsJson, req.user.userId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to save settings' });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      return res.json({ message: 'Settings saved', settings: normalized });
     }
   );
 });

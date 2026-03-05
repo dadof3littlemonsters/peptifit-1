@@ -11,6 +11,8 @@ export default function App({ Component, pageProps }) {
   const router = useRouter()
 
   useEffect(() => {
+    let active = true
+
     const currentUser = auth.getCurrentUser()
     const isAuthenticated = auth.isAuthenticated()
 
@@ -34,9 +36,28 @@ export default function App({ Component, pageProps }) {
       return
     }
 
-    // No redirect needed — the user belongs on this page. Reveal it.
-    setUser(currentUser)
-    setLoading(false)
+    const finalize = async () => {
+      if (isAuthenticated) {
+        try {
+          await auth.syncSettingsToLocalStorage()
+        } catch (error) {
+          // Keep app usable even if settings sync fails.
+        }
+      }
+
+      if (!active) {
+        return
+      }
+
+      setUser(currentUser)
+      setLoading(false)
+    }
+
+    finalize()
+
+    return () => {
+      active = false
+    }
   }, [router.pathname])
 
   if (loading) {

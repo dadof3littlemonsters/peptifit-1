@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { ai, meals as mealsApi, food as foodApi } from '../lib/api'
+import { ai, auth, meals as mealsApi, food as foodApi } from '../lib/api'
 import BottomNav from '../components/BottomNav'
 import CameraCapturePanel from '../components/CameraCapturePanel'
 import {
@@ -213,10 +213,13 @@ export default function Meals() {
 
   useEffect(() => {
     loadMeals()
-    loadCalorieGoal()
     loadLibraryFoods()
     loadHistoryFoods()
   }, [selectedDate])
+
+  useEffect(() => {
+    loadCalorieGoal()
+  }, [])
 
   useEffect(() => {
     if (addFoodFlow !== 'search') {
@@ -284,14 +287,26 @@ export default function Meals() {
     })
   }, [selectedFood, quantityG, selectedMealType, addFoodFlow])
 
-  const loadCalorieGoal = () => {
+  const loadCalorieGoal = async () => {
+    try {
+      const response = await auth.getSettings()
+      const goal = parseInt(response?.settings?.calorie_goal, 10)
+      if (goal > 0) {
+        setCalorieGoal(goal)
+        localStorage.setItem('peptifit_calorie_goal', String(goal))
+        return
+      }
+    } catch (err) {
+      console.error('Error loading account calorie goal:', err)
+    }
+
     try {
       const saved = localStorage.getItem('peptifit_calorie_goal')
       if (saved) {
         setCalorieGoal(parseInt(saved, 10))
       }
-    } catch (err) {
-      console.error('Error loading calorie goal:', err)
+    } catch (localErr) {
+      console.error('Error loading local calorie goal:', localErr)
     }
   }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { doses, peptideConfigs, peptides, vitals, meals, food, bloodResults, supplements } from '../lib/api'
+import { auth, doses, peptideConfigs, peptides, vitals, meals, food, bloodResults, supplements } from '../lib/api'
 import Link from 'next/link'
 import BottomNav from '../components/BottomNav'
 import {
@@ -531,15 +531,27 @@ export default function LandingDashboard({ user }) {
     }
   }
 
-  // Load calorie goal from localStorage
-  const loadCalorieGoal = () => {
+  // Load calorie goal from account settings, with local fallback.
+  const loadCalorieGoal = async () => {
+    try {
+      const response = await auth.getSettings()
+      const goal = parseInt(response?.settings?.calorie_goal, 10)
+      if (goal > 0) {
+        setCalorieGoal(goal)
+        localStorage.setItem('peptifit_calorie_goal', String(goal))
+        return
+      }
+    } catch (err) {
+      console.error('Error loading account calorie goal:', err)
+    }
+
     try {
       const saved = localStorage.getItem('peptifit_calorie_goal')
       if (saved) {
         setCalorieGoal(parseInt(saved, 10))
       }
-    } catch (err) {
-      console.error('Error loading calorie goal:', err)
+    } catch (localErr) {
+      console.error('Error loading local calorie goal:', localErr)
     }
   }
 

@@ -53,46 +53,110 @@ export default function Settings({ user }) {
   const [adherenceGoal, setAdherenceGoal] = useState(80)
 
   // ── UI state ──
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsError, setSettingsError] = useState('')
   const [saved, setSaved] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [deletingAccount, setDeletingAccount] = useState(false)
 
-  // ── Load from localStorage on mount ──────────────────────────────────────
+  const applySettingsValues = (settings) => {
+    setWeightUnit(settings.weight_unit || 'kg')
+    setGlucoseUnit(settings.glucose_unit || 'mg/dL')
+    setTempUnit(settings.temp_unit || 'C')
+    setHeightUnit(settings.height_unit || 'cm')
+    setHeightCm(settings.height_cm || '')
+    setHeightFt(settings.height_ft || '')
+    setHeightIn(settings.height_in || '')
+    setTargetWeight(settings.target_weight || '')
+    setCalorieGoal(parseInt(settings.calorie_goal, 10) || 2500)
+    setProteinGoal(settings.protein_goal || '')
+    setAdherenceGoal(parseInt(settings.adherence_goal, 10) || 80)
+  }
+
+  const loadLegacyLocalSettings = () => {
+    applySettingsValues({
+      weight_unit: localStorage.getItem('peptifit_weight_unit') || 'kg',
+      glucose_unit: localStorage.getItem('peptifit_glucose_unit') || 'mg/dL',
+      temp_unit: localStorage.getItem('peptifit_temp_unit') || 'C',
+      height_unit: localStorage.getItem('peptifit_height_unit') || 'cm',
+      height_cm: localStorage.getItem('peptifit_height_cm') || '',
+      height_ft: localStorage.getItem('peptifit_height_ft') || '',
+      height_in: localStorage.getItem('peptifit_height_in') || '',
+      target_weight: localStorage.getItem('peptifit_target_weight') || '',
+      calorie_goal: parseInt(localStorage.getItem('peptifit_calorie_goal'), 10) || 2500,
+      protein_goal: localStorage.getItem('peptifit_protein_goal') || '',
+      adherence_goal: parseInt(localStorage.getItem('peptifit_adherence_goal'), 10) || 80
+    })
+  }
+
+  // ── Load account settings on mount ──────────────────────────────────────
   useEffect(() => {
+    let active = true
+
+    const loadSettings = async () => {
+      setSettingsLoading(true)
+      setSettingsError('')
+
+      try {
+        const response = await auth.getSettings()
+        if (!active) {
+          return
+        }
+        applySettingsValues(response.settings || {})
+      } catch (err) {
+        if (!active) {
+          return
+        }
+        try {
+          loadLegacyLocalSettings()
+          setSettingsError('Cloud settings unavailable. Showing local values.')
+        } catch (localErr) {
+          setSettingsError('Failed to load settings.')
+          console.error('Error loading settings fallback:', localErr)
+        }
+      } finally {
+        if (active) {
+          setSettingsLoading(false)
+        }
+      }
+    }
+
     try {
-      setWeightUnit(localStorage.getItem('peptifit_weight_unit') || 'kg')
-      setGlucoseUnit(localStorage.getItem('peptifit_glucose_unit') || 'mg/dL')
-      setTempUnit(localStorage.getItem('peptifit_temp_unit') || 'C')
-      setHeightUnit(localStorage.getItem('peptifit_height_unit') || 'cm')
-      setHeightCm(localStorage.getItem('peptifit_height_cm') || '')
-      setHeightFt(localStorage.getItem('peptifit_height_ft') || '')
-      setHeightIn(localStorage.getItem('peptifit_height_in') || '')
-      setTargetWeight(localStorage.getItem('peptifit_target_weight') || '')
-      setCalorieGoal(parseInt(localStorage.getItem('peptifit_calorie_goal')) || 2500)
-      setProteinGoal(localStorage.getItem('peptifit_protein_goal') || '')
-      setAdherenceGoal(parseInt(localStorage.getItem('peptifit_adherence_goal')) || 80)
+      loadSettings()
     } catch (err) {
       console.error('Error loading settings:', err)
+      setSettingsLoading(false)
+    }
+    return () => {
+      active = false
     }
   }, [])
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSettingsError('')
+    const payload = {
+      weight_unit: weightUnit,
+      glucose_unit: glucoseUnit,
+      temp_unit: tempUnit,
+      height_unit: heightUnit,
+      height_cm: heightCm,
+      height_ft: heightFt,
+      height_in: heightIn,
+      target_weight: targetWeight,
+      calorie_goal: calorieGoal || 2500,
+      protein_goal: proteinGoal,
+      adherence_goal: adherenceGoal || 80
+    }
+
     try {
-      localStorage.setItem('peptifit_weight_unit', weightUnit)
-      localStorage.setItem('peptifit_glucose_unit', glucoseUnit)
-      localStorage.setItem('peptifit_temp_unit', tempUnit)
-      localStorage.setItem('peptifit_height_unit', heightUnit)
-      localStorage.setItem('peptifit_height_cm', heightCm)
-      localStorage.setItem('peptifit_height_ft', heightFt)
-      localStorage.setItem('peptifit_height_in', heightIn)
-      localStorage.setItem('peptifit_target_weight', targetWeight)
-      localStorage.setItem('peptifit_calorie_goal', String(calorieGoal || 2500))
-      localStorage.setItem('peptifit_protein_goal', proteinGoal)
-      localStorage.setItem('peptifit_adherence_goal', String(adherenceGoal || 80))
+      const response = await auth.updateSettings(payload)
+      applySettingsValues(response.settings || payload)
     } catch (err) {
       console.error('Error saving settings:', err)
+      setSettingsError(err.response?.data?.error || 'Failed to save settings')
+      return
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -141,6 +205,16 @@ export default function Settings({ user }) {
       </header>
 
       <main className="page-content mx-auto flex-1 min-h-0 overflow-y-auto w-full max-w-lg px-4 py-6 space-y-6 pb-[calc(104px+env(safe-area-inset-bottom))]">
+        {settingsLoading && (
+          <div className="rounded-xl border border-gray-700 bg-gray-800/60 px-4 py-3 text-sm text-gray-300">
+            Loading account settings...
+          </div>
+        )}
+        {settingsError && (
+          <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+            {settingsError}
+          </div>
+        )}
 
         {/* ── 1. Account ─────────────────────────────────────────────────── */}
         <section>
