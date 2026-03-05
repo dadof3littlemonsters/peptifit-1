@@ -8,33 +8,11 @@ import DesktopNav from '../components/DesktopNav'
 
 const PUBLIC_PAGES = ['/login', '/register']
 
-const getActiveNav = (pathname) => {
-  if (pathname === '/') {
-    return 'dashboard'
-  }
-  if (
-    pathname.startsWith('/schedule') ||
-    pathname.startsWith('/peptides') ||
-    pathname.startsWith('/configure-peptides') ||
-    pathname.startsWith('/log-dose')
-  ) {
-    return 'peptides'
-  }
-  if (pathname.startsWith('/meals') || pathname.startsWith('/food')) {
-    return 'meals'
-  }
-  if (pathname.startsWith('/vitals')) {
-    return 'vitals'
-  }
-  return 'more'
-}
-
 export default function App({ Component, pageProps }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const isPublicPage = PUBLIC_PAGES.includes(router.pathname)
-  const activeNav = getActiveNav(router.pathname)
 
   useEffect(() => {
     let active = true
@@ -113,9 +91,9 @@ export default function App({ Component, pageProps }) {
         <meta name="mobile-web-app-capable" content="yes" />
       </Head>
       {!isPublicPage && (
-        <DesktopNav active={activeNav} user={user} />
+        <DesktopNav pathname={router.pathname} user={user} />
       )}
-      <div className={isPublicPage ? '' : 'lg:pl-56'}>
+      <div className={isPublicPage ? '' : 'lg:pl-64'}>
         <Component {...pageProps} user={user} setUser={setUser} />
       </div>
     </>
