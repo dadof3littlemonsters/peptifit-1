@@ -1,0 +1,22 @@
+[
+  {
+    "code": "11-001",
+    "name": "Porridge oats, dry",
+    "category": "Cereals and cereal products",
+    "calories_per_100g": 374,
+    "protein_per_100g": 11.8,
+    "carbs_per_100g": 60.0,
+    "fat_per_100g": 8.4,
+    "fibre_per_100g": 8.8
+  },
+  {
+    "code": "13-102",
+    "name": "Chicken breast, roasted",
+    "category": "Meat and meat products",
+    "calories_per_100g": 172,
+    "protein_per_100g": 31.0,
+    "carbs_per_100g": 0,
+    "fat_per_100g": 3.6,
+    "fibre_per_100g": 0
+  }
+]

@@ -18,6 +18,10 @@ npm-debug.log*
 # Database
 data/peptifit.sqlite
 data/*.db
+data/*.xlsx
+data/*.json
+backend/scripts/__pycache__/
+ui.pdf
 
 # SSL certificates (sensitive)
 nginx/ssl/*.pem

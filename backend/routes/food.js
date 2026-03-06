@@ -3,23 +3,19 @@ const express = require('express');
 const OPEN_FOOD_FACTS_USER_AGENT = 'PeptiFit/1.0 (https://peptifit.trotters-stuff.uk)';
 const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack']);
 const DEFAULT_VOICE_API_KEY = 'peptifit-voice-key';
-const FATSECRET_TOKEN_URL = 'https://oauth.fatsecret.com/connect/token';
-const FATSECRET_SEARCH_URL = 'https://platform.fatsecret.com/rest/foods/search/v3';
-const FATSECRET_ENABLED = process.env.FATSECRET_ENABLED === 'true';
-const FATSECRET_REGION = process.env.FATSECRET_REGION || 'GB';
-const FATSECRET_LANGUAGE = process.env.FATSECRET_LANGUAGE || 'en';
-const FATSECRET_SCOPE = process.env.FATSECRET_SCOPE || 'premier';
+const DASHSCOPE_URL = 'https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions';
+const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const SEARCH_CACHE_TTL_MS = 1000 * 60 * 60 * 6;
 const SEARCH_PROVIDER_DEADLINE_MS = 1200;
 const REMOTE_SEARCH_MIN_QUERY_LENGTH = 3;
 const BARCODE_LOOKUP_TIMEOUT_MS = 5000;
 const BARCODE_LOOKUP_RETRY_TIMEOUT_MS = 2500;
 const BARCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const AI_QUERY_EXPANSION_TIMEOUT_MS = 8000;
+const AI_MANUAL_SEARCH_ENABLED = process.env.AI_FOOD_SEARCH_FALLBACK_ENABLED !== 'false';
 
-let fatSecretTokenCache = {
-  accessToken: null,
-  expiresAt: 0
-};
 const foodSearchCache = new Map();
 const barcodeLookupCache = new Map();
 
@@ -84,23 +80,197 @@ function roundNutrient(value) {
   return Math.round(value * 10) / 10;
 }
 
-function normalizeMetricServingAmount(amount, unit) {
-  const parsedAmount = parseNumber(amount);
-  if (parsedAmount === null) {
-    return null;
+function getResponseText(content) {
+  if (typeof content === 'string') {
+    return content.trim();
   }
 
-  const normalizedUnit = String(unit || '').toLowerCase();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part;
+        }
 
-  if (!normalizedUnit || normalizedUnit === 'g' || normalizedUnit === 'gram' || normalizedUnit === 'grams' || normalizedUnit === 'ml') {
-    return parsedAmount;
+        if (part && typeof part.text === 'string') {
+          return part.text;
+        }
+
+        return '';
+      })
+      .join('\n')
+      .trim();
   }
 
-  if (normalizedUnit === 'oz') {
-    return roundNutrient(parsedAmount * 28.3495);
+  return '';
+}
+
+function stripMarkdownFences(value) {
+  const text = String(value || '').trim();
+
+  if (!text.startsWith('```')) {
+    return text;
   }
 
-  return null;
+  return text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+}
+
+function parseJsonContent(content) {
+  const cleaned = stripMarkdownFences(content);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    }
+
+    throw error;
+  }
+}
+
+function getAiProviderConfig() {
+  const provider = String(process.env.AI_PROVIDER || 'dashscope').trim().toLowerCase();
+
+  if (provider === 'deepseek') {
+    return {
+      provider,
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      url: process.env.DEEPSEEK_API_URL || DEEPSEEK_URL,
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat'
+    };
+  }
+
+  if (provider === 'groq') {
+    return {
+      provider,
+      apiKey: process.env.GROQ_API_KEY,
+      url: process.env.GROQ_API_URL || GROQ_URL,
+      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+    };
+  }
+
+  if (provider === 'openrouter') {
+    return {
+      provider,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      url: process.env.OPENROUTER_API_URL || OPENROUTER_URL,
+      model: process.env.OPENROUTER_MODEL || 'x-ai/grok-4.1-fast',
+      referer: process.env.OPENROUTER_REFERER || process.env.APP_BASE_URL || 'https://trax.delboysden.uk',
+      title: process.env.OPENROUTER_TITLE || 'PeptiFit'
+    };
+  }
+
+  return {
+    provider: 'dashscope',
+    apiKey: process.env.DASHSCOPE_API_KEY,
+    url: process.env.DASHSCOPE_API_URL || DASHSCOPE_URL,
+    model: process.env.DASHSCOPE_MODEL || 'qwen3.5-plus'
+  };
+}
+
+async function expandManualSearchQueryWithAi(query) {
+  if (!AI_MANUAL_SEARCH_ENABLED) {
+    return [];
+  }
+
+  const normalizedQuery = String(query || '').trim();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const providerConfig = getAiProviderConfig();
+  const { apiKey, url, model, provider, referer, title } = providerConfig;
+
+  if (!apiKey) {
+    return [];
+  }
+
+  const systemPrompt = 'You rewrite food search queries for nutrition databases. Return ONLY valid JSON.';
+  const userPrompt = [
+    'Rewrite the food search query into up to 4 compact alternatives likely to match structured food databases.',
+    'Prioritize base food names, UK wording variants, singular/plural, and punctuation/hyphen variants.',
+    'Keep each alternative under 6 words and do not include explanations.',
+    `Input query: "${normalizedQuery}"`,
+    'Return shape: {"queries": ["..."]}'
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_QUERY_EXPANSION_TIMEOUT_MS);
+
+  try {
+    const requestBody = {
+      model,
+      max_tokens: 200,
+      temperature: 0.1
+    };
+
+    if (provider === 'groq' || provider === 'openrouter' || provider === 'deepseek') {
+      requestBody.messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ];
+      requestBody.response_format = { type: 'json_object' };
+    } else {
+      requestBody.messages = [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: userPrompt }]
+        }
+      ];
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        ...(provider === 'openrouter' && referer ? { 'HTTP-Referer': referer } : {}),
+        ...(provider === 'openrouter' && title ? { 'X-OpenRouter-Title': title } : {})
+      },
+      signal: controller.signal,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const messageContent = getResponseText(payload?.choices?.[0]?.message?.content);
+
+    if (!messageContent) {
+      return [];
+    }
+
+    const parsed = parseJsonContent(messageContent);
+    const querySet = new Set([normalizedQuery.toLowerCase()]);
+    const alternatives = Array.isArray(parsed?.queries) ? parsed.queries : [];
+
+    return alternatives
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length >= 2 && value.length <= 60)
+      .filter((value) => {
+        const key = value.toLowerCase();
+        if (querySet.has(key)) {
+          return false;
+        }
+        querySet.add(key);
+        return true;
+      })
+      .slice(0, 4);
+  } catch (error) {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function scalePer100g(valuePer100g, quantityG) {
@@ -133,56 +303,6 @@ function normalizeOffProduct(product) {
     fibre_per_100g: parseNumber(nutriments.fiber_100g ?? nutriments.fibre_100g),
     serving_size_g: parseServingSize(product.serving_size),
     image_url: product.image_small_url || null
-  };
-}
-
-function normalizeFatSecretFood(food) {
-  if (!food || !food.food_id || !food.food_name) {
-    return null;
-  }
-
-  const servings = Array.isArray(food.servings?.serving)
-    ? food.servings.serving
-    : food.servings?.serving
-      ? [food.servings.serving]
-      : [];
-
-  const preferredServing = servings.find((serving) => String(serving.is_default) === '1')
-    || servings.find((serving) => normalizeMetricServingAmount(serving.metric_serving_amount, serving.metric_serving_unit) !== null)
-    || servings[0]
-    || null;
-
-  const servingSizeG = preferredServing
-    ? normalizeMetricServingAmount(preferredServing.metric_serving_amount, preferredServing.metric_serving_unit)
-    : null;
-
-  const caloriesPerServing = parseNumber(preferredServing?.calories);
-  const proteinPerServing = parseNumber(preferredServing?.protein);
-  const carbsPerServing = parseNumber(preferredServing?.carbohydrate);
-  const fatPerServing = parseNumber(preferredServing?.fat);
-  const fibrePerServing = parseNumber(preferredServing?.fiber);
-
-  const toPer100g = (valuePerServing) => {
-    if (valuePerServing === null || servingSizeG === null || servingSizeG <= 0) {
-      return null;
-    }
-
-    return roundNutrient((valuePerServing / servingSizeG) * 100);
-  };
-
-  return {
-    id: String(food.food_id),
-    source: 'fatsecret',
-    name: food.food_name,
-    brand: food.brand_name || null,
-    calories_per_100g: toPer100g(caloriesPerServing),
-    protein_per_100g: toPer100g(proteinPerServing),
-    carbs_per_100g: toPer100g(carbsPerServing),
-    fat_per_100g: toPer100g(fatPerServing),
-    fibre_per_100g: toPer100g(fibrePerServing),
-    serving_size_g: servingSizeG,
-    image_url: null,
-    attribution: 'Powered by fatsecret'
   };
 }
 
@@ -264,65 +384,6 @@ function setCachedValue(cache, key, value, ttlMs, maxEntries = 200) {
   }
 }
 
-function isFatSecretConfigured() {
-  return FATSECRET_ENABLED && Boolean(process.env.FATSECRET_CLIENT_ID && process.env.FATSECRET_CLIENT_SECRET);
-}
-
-async function getFatSecretAccessToken() {
-  if (!isFatSecretConfigured()) {
-    return null;
-  }
-
-  if (fatSecretTokenCache.accessToken && fatSecretTokenCache.expiresAt > Date.now() + 60_000) {
-    return fatSecretTokenCache.accessToken;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const credentials = Buffer.from(
-      `${process.env.FATSECRET_CLIENT_ID}:${process.env.FATSECRET_CLIENT_SECRET}`
-    ).toString('base64');
-
-    const response = await fetch(FATSECRET_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        scope: FATSECRET_SCOPE
-      }).toString(),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw Object.assign(new Error(`fatsecret auth failed with status ${response.status}`), {
-        statusCode: 502
-      });
-    }
-
-    const data = await response.json();
-    const expiresIn = Number(data.expires_in) || 3600;
-
-    fatSecretTokenCache = {
-      accessToken: data.access_token,
-      expiresAt: Date.now() + expiresIn * 1000
-    };
-
-    return fatSecretTokenCache.accessToken;
-  } catch (error) {
-    if (!error.statusCode) {
-      error.statusCode = 502;
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function searchOpenFoodFacts(query, options = {}) {
   const {
     country = 'gb',
@@ -356,37 +417,6 @@ async function searchOpenFoodFacts(query, options = {}) {
     .map(normalizeOffProduct)
     .filter(Boolean)
     .filter((item) => item.id && item.name);
-}
-
-async function searchFatSecret(query) {
-  const token = await getFatSecretAccessToken();
-
-  if (!token) {
-    return [];
-  }
-
-  const url = new URL(FATSECRET_SEARCH_URL);
-  url.searchParams.set('search_expression', query);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('page_number', '0');
-  url.searchParams.set('max_results', '8');
-  url.searchParams.set('region', FATSECRET_REGION);
-  url.searchParams.set('language', FATSECRET_LANGUAGE);
-
-  const data = await fetchJson(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json'
-    }
-  });
-
-  const foods = Array.isArray(data.foods_search?.results?.food)
-    ? data.foods_search.results.food
-    : data.foods_search?.results?.food
-      ? [data.foods_search.results.food]
-      : [];
-
-  return foods.map(normalizeFatSecretFood).filter(Boolean);
 }
 
 function buildOffSearchVariants(query) {
@@ -547,24 +577,51 @@ async function searchCofidFoods(db, query, limit = 8) {
     return [];
   }
 
+  const queryTokens = tokenizeSearchText(normalizedQuery).slice(0, 5);
   const exactMatch = normalizedQuery;
   const prefixPattern = `${normalizedQuery}%`;
   const containsPattern = `%${normalizedQuery}%`;
+  const tokenPredicates = queryTokens
+    .map(() => '(lower(name) LIKE ? OR lower(COALESCE(category, \'\')) LIKE ?)')
+    .join(' OR ');
+  const tokenParams = queryTokens.flatMap((token) => {
+    const pattern = `%${token}%`;
+    return [pattern, pattern];
+  });
+  const tokenScoreExpression = queryTokens.length
+    ? queryTokens.map(() => '(CASE WHEN (lower(name) LIKE ? OR lower(COALESCE(category, \'\')) LIKE ?) THEN 1 ELSE 0 END)').join(' + ')
+    : '0';
+  const tokenScoreParams = queryTokens.flatMap((token) => {
+    const pattern = `%${token}%`;
+    return [pattern, pattern];
+  });
+  const whereTokenClause = tokenPredicates ? ` OR ${tokenPredicates}` : '';
   const rows = await dbAll(
     db,
     `SELECT *
      FROM cofid_foods
      WHERE lower(name) LIKE ?
         OR lower(COALESCE(category, '')) LIKE ?
-     ORDER BY CASE
+        ${whereTokenClause}
+      ORDER BY CASE
        WHEN lower(name) = ? THEN 0
        WHEN lower(name) LIKE ? THEN 1
        WHEN lower(COALESCE(category, '')) LIKE ? THEN 2
        ELSE 3
      END,
+     (${tokenScoreExpression}) DESC,
      name ASC
      LIMIT ?`,
-    [containsPattern, containsPattern, exactMatch, prefixPattern, prefixPattern, Math.max(limit * 8, 40)]
+    [
+      containsPattern,
+      containsPattern,
+      ...tokenParams,
+      exactMatch,
+      prefixPattern,
+      prefixPattern,
+      ...tokenScoreParams,
+      Math.max(limit * 12, 60)
+    ]
   );
 
   return rows
@@ -701,17 +758,8 @@ async function searchFoods(query) {
     return cachedPrefixResults;
   }
 
-  const [fatSecretOutcome, offOutcome] = await Promise.all([
-    withDeadline(searchFatSecret(query), SEARCH_PROVIDER_DEADLINE_MS, []),
-    searchOpenFoodFactsPrimary(query)
-  ]);
-
-  const fatSecretResults = Array.isArray(fatSecretOutcome) ? fatSecretOutcome : [];
+  const offOutcome = await searchOpenFoodFactsPrimary(query);
   const offResults = Array.isArray(offOutcome) ? offOutcome : [];
-
-  if (fatSecretOutcome && fatSecretOutcome.__deadline_error) {
-    console.error('fatsecret search failed:', fatSecretOutcome.__deadline_error);
-  }
 
   if (offOutcome && offOutcome.__deadline_error) {
     console.error('Open Food Facts search failed:', offOutcome.__deadline_error);
@@ -719,7 +767,6 @@ async function searchFoods(query) {
 
   const results = dedupeFoods([
     ...cachedPrefixResults,
-    ...fatSecretResults,
     ...offResults
   ]).slice(0, 8);
 
@@ -1042,7 +1089,39 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
         }
       }
 
-      const results = dedupeFoods([...localResults, ...cofidResults, ...remoteResults]).slice(0, 8);
+      let results = dedupeFoods([...localResults, ...cofidResults, ...remoteResults]).slice(0, 8);
+
+      // AI fallback: expand sparse manual queries and retry search with rewritten variants.
+      if (tokenizeSearchText(query).length >= 2 && results.length < 4) {
+        const aiVariants = await expandManualSearchQueryWithAi(query);
+
+        if (aiVariants.length) {
+          const expandedCollections = [];
+
+          for (const variant of aiVariants) {
+            const variantLocal = await searchLocalFoods(db, req.user.userId, variant, 4);
+            const variantCofid = await searchCofidFoods(db, variant, 4);
+            let variantRemote = [];
+
+            if (dedupeFoods([...variantLocal, ...variantCofid]).length < 6) {
+              try {
+                variantRemote = await searchFoods(variant);
+              } catch (variantRemoteError) {
+                console.error(`AI fallback remote food search failed for "${variant}":`, variantRemoteError);
+              }
+            }
+
+            expandedCollections.push(...variantLocal, ...variantCofid, ...variantRemote);
+
+            if (dedupeFoods([...results, ...expandedCollections]).length >= 8) {
+              break;
+            }
+          }
+
+          results = dedupeFoods([...results, ...expandedCollections]).slice(0, 8);
+        }
+      }
+
       res.json({ results });
     } catch (error) {
       console.error('Food search failed:', error);
