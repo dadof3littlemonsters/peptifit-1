@@ -779,11 +779,32 @@ function validateMealType(mealType) {
   return VALID_MEAL_TYPES.has(mealType) ? mealType : 'snack';
 }
 
+function getAcceptedVoiceKeys() {
+  const keys = new Set();
+  const configuredKey = String(process.env.VOICE_API_KEY || '').trim();
+  const configuredKeys = String(process.env.VOICE_API_KEYS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configuredKey) {
+    keys.add(configuredKey);
+  }
+
+  for (const key of configuredKeys) {
+    keys.add(key);
+  }
+
+  // Keep the original default valid to reduce operator/config friction.
+  keys.add(DEFAULT_VOICE_API_KEY);
+  return keys;
+}
+
 function ensureVoiceKey(req, res, next) {
   const providedKey = req.query.key || req.body?.key;
-  const expectedKey = process.env.VOICE_API_KEY || DEFAULT_VOICE_API_KEY;
+  const acceptedKeys = getAcceptedVoiceKeys();
 
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!providedKey || !acceptedKeys.has(String(providedKey).trim())) {
     res.status(401).json({ error: 'Invalid voice API key' });
     return;
   }
@@ -965,6 +986,61 @@ async function saveFoodToLibrary(db, uuidv4, userId, food) {
   return id;
 }
 
+async function insertMealRow(db, meal) {
+  await dbRun(
+    db,
+    `INSERT INTO meals (
+      id, user_id, meal_type, food_name, calories, protein, carbs, fat, logged_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      meal.id,
+      meal.user_id,
+      meal.meal_type,
+      meal.food_name,
+      meal.calories,
+      meal.protein,
+      meal.carbs,
+      meal.fat,
+      meal.logged_at
+    ]
+  );
+}
+
+async function insertFoodLogRow(db, foodLog) {
+  await dbRun(
+    db,
+    `INSERT INTO food_logs (
+      id, user_id, food_id, source, name, brand, quantity_g, meal_type,
+      calories, protein, carbs, fat, fibre, logged_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      foodLog.id,
+      foodLog.user_id,
+      foodLog.food_id,
+      foodLog.source,
+      foodLog.name,
+      foodLog.brand,
+      foodLog.quantity_g,
+      foodLog.meal_type,
+      foodLog.calories,
+      foodLog.protein,
+      foodLog.carbs,
+      foodLog.fat,
+      foodLog.fibre,
+      foodLog.logged_at
+    ]
+  );
+}
+
+async function verifyPersistedRows(db, userId, mealId, foodLogId) {
+  const [mealRow, foodLogRow] = await Promise.all([
+    dbGet(db, 'SELECT id FROM meals WHERE id = ? AND user_id = ?', [mealId, userId]),
+    dbGet(db, 'SELECT id FROM food_logs WHERE id = ? AND user_id = ?', [foodLogId, userId])
+  ]);
+
+  return Boolean(mealRow?.id && foodLogRow?.id);
+}
+
 module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
   const router = express.Router();
 
@@ -1009,17 +1085,34 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      const results = await searchOpenFoodFacts(query);
+      const cofidResults = await searchCofidFoods(db, query, 8);
+      let remoteResults = [];
+
+      if (cofidResults.length < 8) {
+        try {
+          remoteResults = await searchFoods(query);
+        } catch (remoteError) {
+          console.error('Voice food remote search failed, retrying with variants:', remoteError);
+          remoteResults = await searchOpenFoodFactsVariants(query).catch((variantError) => {
+            console.error('Voice food variant search failed:', variantError);
+            return [];
+          });
+        }
+      }
+
+      const results = dedupeFoods([...cofidResults, ...remoteResults]).slice(0, 8);
       const topResult = results[0];
 
       if (!topResult) {
         return res.status(404).json({ error: 'Product not found' });
       }
 
-      const logId = uuidv4();
+      const mealId = uuidv4();
+      const foodLogId = uuidv4();
       const mealType = validateMealType(meal_type);
+      const normalizedLoggedAt = logged_at || new Date().toISOString();
       const foodLog = {
-        id: logId,
+        id: foodLogId,
         user_id,
         food_id: topResult.id,
         source: topResult.source,
@@ -1032,35 +1125,50 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
         carbs: scalePer100g(topResult.carbs_per_100g, quantityG),
         fat: scalePer100g(topResult.fat_per_100g, quantityG),
         fibre: scalePer100g(topResult.fibre_per_100g, quantityG),
-        logged_at: logged_at || new Date().toISOString()
+        logged_at: normalizedLoggedAt
       };
 
-      await dbRun(
-        db,
-        `INSERT INTO food_logs (
-          id, user_id, food_id, source, name, brand, quantity_g, meal_type,
-          calories, protein, carbs, fat, fibre, logged_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          foodLog.id,
-          foodLog.user_id,
-          foodLog.food_id,
-          foodLog.source,
-          foodLog.name,
-          foodLog.brand,
-          foodLog.quantity_g,
-          foodLog.meal_type,
-          foodLog.calories,
-          foodLog.protein,
-          foodLog.carbs,
-          foodLog.fat,
-          foodLog.fibre,
-          foodLog.logged_at
-        ]
-      );
+      const mealRow = {
+        id: mealId,
+        user_id,
+        meal_type: mealType,
+        food_name: topResult.name,
+        calories: parseNumber(foodLog.calories) || 0,
+        protein: parseNumber(foodLog.protein) || 0,
+        carbs: parseNumber(foodLog.carbs) || 0,
+        fat: parseNumber(foodLog.fat) || 0,
+        logged_at: normalizedLoggedAt
+      };
+
+      await dbRun(db, 'BEGIN TRANSACTION');
+      try {
+        await insertMealRow(db, mealRow);
+        await insertFoodLogRow(db, foodLog);
+        await dbRun(db, 'COMMIT');
+      } catch (writeError) {
+        await dbRun(db, 'ROLLBACK').catch(() => null);
+        throw writeError;
+      }
+
+      const persisted = await verifyPersistedRows(db, user_id, mealId, foodLogId);
+      if (!persisted) {
+        throw Object.assign(new Error('Write verification failed for voice meal log'), { statusCode: 500 });
+      }
 
       res.status(201).json({
         message: 'Food logged successfully',
+        verified: true,
+        meal: {
+          id: mealRow.id,
+          user_id: mealRow.user_id,
+          meal_type: mealRow.meal_type,
+          food_name: mealRow.food_name,
+          calories: mealRow.calories,
+          protein: mealRow.protein,
+          carbs: mealRow.carbs,
+          fat: mealRow.fat,
+          logged_at: mealRow.logged_at
+        },
         logged: foodLog
       });
     } catch (error) {
