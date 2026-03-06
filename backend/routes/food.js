@@ -1141,9 +1141,21 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
       };
 
       await dbRun(db, 'BEGIN TRANSACTION');
+      let libraryFoodId = null;
       try {
         await insertMealRow(db, mealRow);
         await insertFoodLogRow(db, foodLog);
+        libraryFoodId = await saveFoodToLibrary(db, uuidv4, user_id, {
+          source: topResult.source,
+          name: topResult.name,
+          brand: topResult.brand,
+          calories_per_100g: topResult.calories_per_100g,
+          protein_per_100g: topResult.protein_per_100g,
+          carbs_per_100g: topResult.carbs_per_100g,
+          fat_per_100g: topResult.fat_per_100g,
+          fibre_per_100g: topResult.fibre_per_100g,
+          serving_size_g: topResult.serving_size_g
+        });
         await dbRun(db, 'COMMIT');
       } catch (writeError) {
         await dbRun(db, 'ROLLBACK').catch(() => null);
@@ -1158,6 +1170,7 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
       res.status(201).json({
         message: 'Food logged successfully',
         verified: true,
+        library_food_id: libraryFoodId,
         meal: {
           id: mealRow.id,
           user_id: mealRow.user_id,
