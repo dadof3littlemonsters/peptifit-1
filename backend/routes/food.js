@@ -1383,33 +1383,71 @@ module.exports = function createFoodRouter({ db, authenticateToken, uuidv4 }) {
 
     const mealType = validateMealType(meal_type);
     const logId = uuidv4();
+    const mealId = uuidv4();
+    const loggedAt = logged_at || new Date().toISOString();
 
     try {
-      await dbRun(
-        db,
-        `INSERT INTO food_logs (
-          id, user_id, food_id, source, name, brand, quantity_g, meal_type,
-          calories, protein, carbs, fat, fibre, logged_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          logId,
-          req.user.userId,
-          food_id || null,
-          source || null,
-          name,
-          brand || null,
-          quantityG,
-          mealType,
-          parseNumber(calories),
-          parseNumber(protein),
-          parseNumber(carbs),
-          parseNumber(fat),
-          parseNumber(fibre),
-          logged_at || new Date().toISOString()
-        ]
-      );
+      await dbRun(db, 'BEGIN TRANSACTION');
 
-      res.status(201).json({ id: logId, message: 'Food logged successfully' });
+      try {
+        // Insert into food_logs
+        await dbRun(
+          db,
+          `INSERT INTO food_logs (
+            id, user_id, food_id, source, name, brand, quantity_g, meal_type,
+            calories, protein, carbs, fat, fibre, logged_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            logId,
+            req.user.userId,
+            food_id || null,
+            source || null,
+            name,
+            brand || null,
+            quantityG,
+            mealType,
+            parseNumber(calories),
+            parseNumber(protein),
+            parseNumber(carbs),
+            parseNumber(fat),
+            parseNumber(fibre),
+            loggedAt
+          ]
+        );
+
+        // Insert into meals for dashboard display
+        console.log('Inserting into meals:', { mealId, userId: req.user.userId, mealType, name });
+        try {
+          await dbRun(
+            db,
+            `INSERT INTO meals (
+              id, user_id, meal_type, food_name, calories, protein, carbs, fat, logged_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              mealId,
+              req.user.userId,
+              mealType,
+              name,
+              parseNumber(calories) || 0,
+              parseNumber(protein) || 0,
+              parseNumber(carbs) || 0,
+              parseNumber(fat) || 0,
+              loggedAt
+            ]
+          );
+          console.log('Meals insert successful');
+        } catch (mealsError) {
+          console.error('Meals insert error:', mealsError);
+          throw mealsError;
+        }
+
+        await dbRun(db, 'COMMIT');
+      } catch (writeError) {
+        await dbRun(db, 'ROLLBACK').catch(() => null);
+        throw writeError;
+      }
+
+      res.status(201).json({ id: logId, meal_id: mealId, message: 'Food logged successfully' });
     } catch (error) {
       console.error('Food log insert failed:', error);
       res.status(500).json({ error: 'Failed to log food' });
