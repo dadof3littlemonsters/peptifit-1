@@ -9,6 +9,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const createFoodRouter = require('./routes/food');
 const createAiRouter = require('./routes/ai');
+const createAssistantRouter = require('./routes/assistant');
 
 const OPEN_FOOD_FACTS_USER_AGENT = 'PeptiFit/1.0 (https://peptifit.trotters-stuff.uk)';
 const DEFAULT_ACCOUNT_SETTINGS = {
@@ -890,6 +891,7 @@ app.post('/maintenance/cofid/refresh', authenticateToken, requireCofidRefreshKey
 
 app.use('/food', createFoodRouter({ db, authenticateToken, uuidv4 }));
 app.use('/ai', createAiRouter({ authenticateToken }));
+app.use('/assistant', createAssistantRouter({ db }));
 
 if (COFID_REFRESH_CRON) {
   cron.schedule(COFID_REFRESH_CRON, async () => {

@@ -28,6 +28,7 @@ nginx/ssl/*.pem
 
 # Docker volumes
 volumes/
+syncthing-config/
 
 # OS files
 .DS_Store

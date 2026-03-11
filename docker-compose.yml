@@ -130,26 +130,6 @@ services:
     networks:
       - stack
 
-  # Syncthing - File Synchronization
-  syncthing:
-    image: syncthing/syncthing:latest
-    container_name: peptifit_syncthing
-    restart: unless-stopped
-    hostname: syncthing
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - STGUIADDRESS=0.0.0.0:8384
-    volumes:
-      - ./syncthing-config:/var/syncthing/config
-      - syncthing_data:/var/syncthing/Sync
-      - /home/peptifit/transcription-pipeline/uploads:/var/syncthing/uploads
-      - /home/peptifit/transcription-pipeline/outputs/docs:/var/syncthing/kate-outputs:ro
-      - /home/peptifit/transcription-pipeline/outputs/docs/keira:/var/syncthing/keira-outputs:ro
-    networks:
-      - stack
-    # Don't expose ports directly - access through Caddy reverse proxy
-
 networks:
   stack:
     driver: bridge
@@ -161,5 +141,3 @@ volumes:
   guacd_drive:
   guacd_record:
   guacamole_db_data:
-  syncthing_config:
-  syncthing_data:
