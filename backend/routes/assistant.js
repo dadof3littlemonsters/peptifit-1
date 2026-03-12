@@ -1,7 +1,13 @@
 const express = require('express');
+const fs = require('fs/promises');
+const path = require('path');
+const createAiRouter = require('./ai');
 const { v4: uuidv4 } = require('uuid');
 
 const VALID_MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack']);
+const OPEN_FOOD_FACTS_USER_AGENT = 'PeptiFit/1.0 (https://peptifit.trotters-stuff.uk)';
+const REMOTE_SEARCH_MIN_QUERY_LENGTH = 3;
+const { scanNutritionLabel } = createAiRouter.helpers;
 
 function dbAll(db, sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -109,6 +115,258 @@ function scalePer100(value, quantityG) {
   return roundNutrient((numericValue * numericQuantity) / 100);
 }
 
+function parseServingSize(servingSize) {
+  if (!servingSize || typeof servingSize !== 'string') {
+    return null;
+  }
+
+  const match = servingSize.replace(',', '.').match(/(\d+(?:\.\d+)?)\s*(g|gram|grams|ml)\b/i);
+  return match ? parseNumber(match[1]) : null;
+}
+
+function stripDataUrlPrefix(value) {
+  const text = String(value || '').trim();
+  const commaIndex = text.indexOf(',');
+
+  if (text.startsWith('data:') && commaIndex !== -1) {
+    return text.slice(commaIndex + 1);
+  }
+
+  return text;
+}
+
+function getMimeTypeFromDataUrl(value, fallback = 'application/octet-stream') {
+  const text = String(value || '').trim();
+  const match = text.match(/^data:([^;,]+)[;,]/i);
+  return match ? match[1].toLowerCase() : fallback;
+}
+
+function normalizeOffProduct(product) {
+  if (!product || !product.product_name) {
+    return null;
+  }
+
+  const nutriments = product.nutriments || {};
+
+  return {
+    id: String(product.code || ''),
+    source: 'off',
+    name: product.product_name,
+    brand: product.brands || null,
+    calories_per_100g: parseNumber(nutriments['energy-kcal_100g'] ?? nutriments.energy_kcal_100g),
+    protein_per_100g: parseNumber(nutriments.proteins_100g),
+    carbs_per_100g: parseNumber(nutriments.carbohydrates_100g),
+    fat_per_100g: parseNumber(nutriments.fat_100g),
+    fibre_per_100g: parseNumber(nutriments.fiber_100g ?? nutriments.fibre_100g),
+    serving_size_g: parseServingSize(product.serving_size),
+    image_url: product.image_small_url || null
+  };
+}
+
+function normalizeLoggedFood(row) {
+  if (!row || !row.name) {
+    return null;
+  }
+
+  const quantityG = parseNumber(row.quantity_g);
+  const toPer100 = (value) => {
+    const numericValue = parseNumber(value);
+
+    if (numericValue === null || quantityG === null || quantityG <= 0) {
+      return null;
+    }
+
+    return roundNutrient((numericValue / quantityG) * 100);
+  };
+
+  return {
+    id: `logged:${String(row.name).toLowerCase()}::${String(row.brand || '').toLowerCase()}`,
+    source: row.source || 'logged',
+    name: row.name,
+    brand: row.brand || null,
+    calories_per_100g: toPer100(row.calories),
+    protein_per_100g: toPer100(row.protein),
+    carbs_per_100g: toPer100(row.carbs),
+    fat_per_100g: toPer100(row.fat),
+    fibre_per_100g: toPer100(row.fibre),
+    serving_size_g: quantityG,
+    image_url: null
+  };
+}
+
+function normalizeLocalFood(row) {
+  if (!row || !row.name) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    source: row.source || 'local',
+    name: row.name,
+    brand: row.brand || null,
+    calories_per_100g: parseNumber(row.calories_per_100g),
+    protein_per_100g: parseNumber(row.protein_per_100g),
+    carbs_per_100g: parseNumber(row.carbs_per_100g),
+    fat_per_100g: parseNumber(row.fat_per_100g),
+    fibre_per_100g: parseNumber(row.fibre_per_100g),
+    serving_size_g: parseNumber(row.serving_size_g),
+    image_url: null
+  };
+}
+
+function dedupeFoodCandidates(items) {
+  const seen = new Set();
+
+  return items.filter((item) => {
+    const key = `${String(item.name || '').toLowerCase()}::${String(item.brand || '').toLowerCase()}::${String(item.source || '').toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const { timeoutMs = 15000, ...fetchOptions } = options;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw Object.assign(new Error(`Upstream request failed with status ${response.status}`), {
+        statusCode: 502
+      });
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (!error.statusCode) {
+      error.statusCode = 502;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function searchOpenFoodFacts(query, options = {}) {
+  const { country = 'gb', language = 'en' } = options;
+  const url = new URL('https://world.openfoodfacts.org/cgi/search.pl');
+  url.searchParams.set('search_terms', query);
+  url.searchParams.set('search_simple', '1');
+  url.searchParams.set('action', 'process');
+  url.searchParams.set('json', '1');
+  url.searchParams.set('page_size', '8');
+  url.searchParams.set('fields', 'code,product_name,brands,nutriments,serving_size,image_small_url');
+  if (language) {
+    url.searchParams.set('lc', language);
+  }
+  if (country) {
+    url.searchParams.set('cc', country);
+  }
+
+  const data = await fetchJson(url.toString(), {
+    headers: {
+      'User-Agent': OPEN_FOOD_FACTS_USER_AGENT,
+      Accept: 'application/json'
+    },
+    timeoutMs: 20000
+  });
+
+  return (data.products || [])
+    .map(normalizeOffProduct)
+    .filter((item) => item && item.id && item.name);
+}
+
+async function lookupOffBarcode(code) {
+  const url = `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(String(code || '').trim())}.json`;
+  const data = await fetchJson(url, {
+    headers: {
+      'User-Agent': OPEN_FOOD_FACTS_USER_AGENT,
+      Accept: 'application/json'
+    },
+    timeoutMs: 8000
+  });
+
+  if (data.status === 0 || !data.product) {
+    return null;
+  }
+
+  return normalizeOffProduct({ ...data.product, code });
+}
+
+async function resolveImageDataUrl(payload) {
+  const inlineImage = normalizeString(payload.image) || normalizeString(payload.image_base64);
+  if (inlineImage) {
+    if (inlineImage.startsWith('data:')) {
+      return inlineImage;
+    }
+
+    return `data:${getMimeTypeFromDataUrl(payload.image, 'image/png')};base64,${stripDataUrlPrefix(inlineImage)}`;
+  }
+
+  const imagePath = normalizeString(payload.image_path);
+  if (!imagePath) {
+    return null;
+  }
+
+  const resolvedPath = path.resolve(imagePath);
+  const ext = path.extname(resolvedPath).toLowerCase();
+  const mimeType = ext === '.jpg' || ext === '.jpeg'
+    ? 'image/jpeg'
+    : ext === '.webp'
+      ? 'image/webp'
+      : 'image/png';
+  const buffer = await fs.readFile(resolvedPath);
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+function normalizeParsedLabelData(data, warnings = []) {
+  const normalized = {
+    name: normalizeString(data.name) || 'Scanned food',
+    brand: normalizeString(data.brand),
+    serving_size_g: parseNumber(data.serving_size_g),
+    calories_per_100g: parseNumber(data.calories_per_100g),
+    protein_per_100g: parseNumber(data.protein_per_100g),
+    carbs_per_100g: parseNumber(data.carbs_per_100g),
+    fat_per_100g: parseNumber(data.fat_per_100g),
+    fibre_per_100g: parseNumber(data.fibre_per_100g),
+    calories_per_serving: parseNumber(data.calories_per_serving ?? data.calories),
+    protein_per_serving: parseNumber(data.protein_per_serving ?? data.protein),
+    carbs_per_serving: parseNumber(data.carbs_per_serving ?? data.carbs),
+    fat_per_serving: parseNumber(data.fat_per_serving ?? data.fat),
+    fibre_per_serving: parseNumber(data.fibre_per_serving ?? data.fibre),
+    confidence: data.confidence !== undefined ? parseNumber(data.confidence) : null
+  };
+
+  if (!normalized.calories_per_100g && normalized.calories_per_serving !== null && normalized.serving_size_g) {
+    normalized.calories_per_100g = roundNutrient((normalized.calories_per_serving / normalized.serving_size_g) * 100);
+  }
+  if (!normalized.protein_per_100g && normalized.protein_per_serving !== null && normalized.serving_size_g) {
+    normalized.protein_per_100g = roundNutrient((normalized.protein_per_serving / normalized.serving_size_g) * 100);
+  }
+  if (!normalized.carbs_per_100g && normalized.carbs_per_serving !== null && normalized.serving_size_g) {
+    normalized.carbs_per_100g = roundNutrient((normalized.carbs_per_serving / normalized.serving_size_g) * 100);
+  }
+  if (!normalized.fat_per_100g && normalized.fat_per_serving !== null && normalized.serving_size_g) {
+    normalized.fat_per_100g = roundNutrient((normalized.fat_per_serving / normalized.serving_size_g) * 100);
+  }
+  if (!normalized.fibre_per_100g && normalized.fibre_per_serving !== null && normalized.serving_size_g) {
+    normalized.fibre_per_100g = roundNutrient((normalized.fibre_per_serving / normalized.serving_size_g) * 100);
+  }
+
+  return {
+    ...normalized,
+    warnings
+  };
+}
+
 function assistantError(res, status, code, message, details = {}) {
   res.status(status).json({
     success: false,
@@ -133,10 +391,154 @@ function assistantSuccess(req, res, payload, options = {}) {
   });
 }
 
+function buildSupplementComponent(name, amount, unit, options = {}) {
+  const normalizedName = normalizeString(name);
+  const normalizedAmount = parseNumber(amount);
+  const normalizedUnit = normalizeString(unit);
+  const normalizedBasis = normalizeString(options.basis);
+  const normalizedContext = normalizeString(options.context);
+
+  if (!normalizedName || normalizedAmount === null || !normalizedUnit) {
+    return null;
+  }
+
+  return {
+    name: normalizedName,
+    amount: normalizedAmount,
+    unit: normalizedUnit,
+    basis: normalizedBasis,
+    context: normalizedContext
+  };
+}
+
+function parseSupplementComponents(row) {
+  const notes = normalizeString(row && row.notes);
+  if (!notes) {
+    return [];
+  }
+
+  const strengthAmount = parseNumber(row && row.strength_amount);
+  const strengthUnit = normalizeString(row && row.strength_unit);
+  const strengthBasis = normalizeString(row && row.strength_basis);
+  const totalDoseAmount = parseNumber(row && row.total_dose_amount);
+  const totalDoseUnit = normalizeString(row && row.total_dose_unit);
+  const supplementName = String(row && row.name || '').trim().toLowerCase();
+  const dedupe = new Set();
+  const components = [];
+  const addComponent = (component) => {
+    if (!component) {
+      return;
+    }
+
+    const componentName = component.name.toLowerCase();
+    const matchesPrimaryStrength =
+      strengthAmount !== null &&
+      component.amount === strengthAmount &&
+      component.unit.toLowerCase() === String(strengthUnit || '').toLowerCase() &&
+      String(component.basis || '').toLowerCase() === String(strengthBasis || '').toLowerCase() &&
+      supplementName.includes(componentName);
+    const matchesPrimaryTotal =
+      totalDoseAmount !== null &&
+      component.amount === totalDoseAmount &&
+      component.unit.toLowerCase() === String(totalDoseUnit || '').toLowerCase() &&
+      supplementName.includes(componentName);
+
+    if (matchesPrimaryStrength || matchesPrimaryTotal) {
+      return;
+    }
+
+    const key = [
+      componentName,
+      component.amount,
+      component.unit.toLowerCase(),
+      String(component.basis || '').toLowerCase(),
+      String(component.context || '').toLowerCase()
+    ].join('::');
+
+    if (dedupe.has(key)) {
+      return;
+    }
+
+    dedupe.add(key);
+    components.push(component);
+  };
+
+  const contextualPattern = /([^.:]+?)\s*\(([^)]+)\)\s*:\s*([^.]*)/gi;
+  let contextualMatch;
+  while ((contextualMatch = contextualPattern.exec(notes)) !== null) {
+    const rawContext = normalizeString(contextualMatch[1]);
+    const rawBasis = normalizeString(contextualMatch[2]);
+    const body = String(contextualMatch[3] || '');
+    const context = rawContext ? rawContext.toLowerCase().replace(/\s+/g, '_') : null;
+    const basis = rawBasis ? `per ${rawBasis}` : null;
+
+    body.split(';').forEach((part) => {
+      const item = normalizeString(part);
+      if (!item) {
+        return;
+      }
+      const match = item.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*(mg|mcg|g|kg|iu|µg)\b/i);
+      if (!match) {
+        return;
+      }
+      addComponent(buildSupplementComponent(match[1], match[2], match[3], { basis, context }));
+    });
+  }
+
+  const genericNotes = notes.replace(contextualPattern, '');
+
+  genericNotes.split(/[.;]/).forEach((fragment) => {
+    const text = normalizeString(fragment);
+    if (!text || text.includes(':')) {
+      return;
+    }
+
+    const perMatch = text.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*(mg|mcg|g|kg|iu|µg)\s+per\s+(.+)$/i);
+    if (perMatch) {
+      addComponent(buildSupplementComponent(perMatch[1], perMatch[2], perMatch[3], {
+        basis: `per ${normalizeString(perMatch[4])}`
+      }));
+      return;
+    }
+
+    const trailingMatch = text.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*(mg|mcg|g|kg|iu|µg)$/i);
+    if (trailingMatch) {
+      addComponent(buildSupplementComponent(trailingMatch[1], trailingMatch[2], trailingMatch[3], {
+        basis: strengthBasis
+      }));
+    }
+  });
+
+  const parentheticalPattern = /\((\d+(?:\.\d+)?)\s*(mg|mcg|g|kg|iu|µg)\s+([^)]+)\)/gi;
+  let parentheticalMatch;
+  while ((parentheticalMatch = parentheticalPattern.exec(notes)) !== null) {
+    addComponent(buildSupplementComponent(parentheticalMatch[3], parentheticalMatch[1], parentheticalMatch[2], {
+      basis: strengthBasis
+    }));
+  }
+
+  return components;
+}
+
 function normalizeSupplement(row) {
   if (!row) {
     return null;
   }
+
+  const countPerDose = row.count_per_dose === null || row.count_per_dose === undefined || row.count_per_dose === ''
+    ? null
+    : Number(row.count_per_dose);
+  const countUnit = normalizeString(row.count_unit);
+  const strengthAmount = row.strength_amount === null || row.strength_amount === undefined || row.strength_amount === ''
+    ? null
+    : Number(row.strength_amount);
+  const strengthUnit = normalizeString(row.strength_unit);
+  const strengthBasis = normalizeString(row.strength_basis);
+  const totalDoseAmount = row.total_dose_amount === null || row.total_dose_amount === undefined || row.total_dose_amount === ''
+    ? null
+    : Number(row.total_dose_amount);
+  const totalDoseUnit = normalizeString(row.total_dose_unit);
+  const components = parseSupplementComponents(row);
 
   return {
     id: row.id,
@@ -151,7 +553,30 @@ function normalizeSupplement(row) {
     time_of_day: row.time_of_day || null,
     notes: row.notes || null,
     is_active: toBoolean(row.is_active),
-    created_at: row.created_at || null
+    created_at: row.created_at || null,
+    count_per_dose: countPerDose,
+    count_unit: countUnit,
+    strength_amount: strengthAmount,
+    strength_unit: strengthUnit,
+    strength_basis: strengthBasis,
+    total_dose_amount: totalDoseAmount,
+    total_dose_unit: totalDoseUnit,
+    practical_dose: {
+      count_per_dose: countPerDose,
+      count_unit: countUnit,
+      frequency: row.frequency || null,
+      time_of_day: row.time_of_day || null
+    },
+    strength: {
+      amount: strengthAmount,
+      unit: strengthUnit,
+      basis: strengthBasis
+    },
+    total_dose: {
+      amount: totalDoseAmount,
+      unit: totalDoseUnit
+    },
+    components
   };
 }
 
@@ -159,6 +584,16 @@ function normalizeSupplementLog(row) {
   if (!row) {
     return null;
   }
+
+  const components = parseSupplementComponents({
+    name: row.supplement_name,
+    notes: row.supplement_notes,
+    strength_amount: row.strength_amount,
+    strength_unit: row.strength_unit,
+    strength_basis: row.strength_basis,
+    total_dose_amount: row.total_dose_amount,
+    total_dose_unit: row.total_dose_unit
+  });
 
   return {
     id: row.id,
@@ -168,7 +603,38 @@ function normalizeSupplementLog(row) {
     dose_amount: row.dose_amount === null || row.dose_amount === undefined ? null : Number(row.dose_amount),
     dose_unit: row.dose_unit || null,
     taken_at: row.taken_at,
-    notes: row.notes || null
+    notes: row.notes || null,
+    practical_dose: {
+      count_per_dose: row.count_per_dose === null || row.count_per_dose === undefined ? null : Number(row.count_per_dose),
+      count_unit: normalizeString(row.count_unit)
+    },
+    strength: {
+      amount: row.strength_amount === null || row.strength_amount === undefined ? null : Number(row.strength_amount),
+      unit: normalizeString(row.strength_unit),
+      basis: normalizeString(row.strength_basis)
+    },
+    total_dose: {
+      amount: row.total_dose_amount === null || row.total_dose_amount === undefined ? null : Number(row.total_dose_amount),
+      unit: normalizeString(row.total_dose_unit)
+    },
+    components
+  };
+}
+
+function normalizeSupplementGroup(row, supplements = []) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    group_name: row.name,
+    normalized_name: row.normalized_name || normalizeString(row.name),
+    display_name: row.display_name || row.name,
+    is_default: toBoolean(row.is_default),
+    is_active: row.is_active === undefined ? true : toBoolean(row.is_active),
+    supplement_count: supplements.length,
+    supplements
   };
 }
 
@@ -314,6 +780,62 @@ function buildSupplementDosageText(doseAmount, doseUnit, dosageText) {
   return null;
 }
 
+function singularSupplementUnit(unit) {
+  const normalized = String(unit || '').trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.endsWith('s')) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function pluralSupplementUnit(unit, count) {
+  const singular = singularSupplementUnit(unit);
+  if (!singular) {
+    return '';
+  }
+  return Number(count) === 1 ? singular : `${singular}s`;
+}
+
+function buildLegacySupplementFields(payload = {}) {
+  const countPerDose = parseNumber(payload.count_per_dose);
+  const countUnit = singularSupplementUnit(payload.count_unit);
+  const strengthAmount = parseNumber(payload.strength_amount);
+  const strengthUnit = normalizeString(payload.strength_unit);
+  const totalDoseAmount = parseNumber(payload.total_dose_amount);
+  const totalDoseUnit = normalizeString(payload.total_dose_unit);
+
+  const dosage = normalizeString(payload.dosage)
+    || (totalDoseAmount !== null && totalDoseUnit ? `${totalDoseAmount} ${totalDoseUnit}` : null)
+    || (strengthAmount !== null && strengthUnit ? `${strengthAmount} ${strengthUnit}` : null)
+    || (countPerDose !== null && countUnit ? `${countPerDose} ${pluralSupplementUnit(countUnit, countPerDose)}` : null)
+    || '';
+
+  if (countPerDose !== null && countUnit) {
+    return {
+      dosage,
+      dose_amount: countPerDose,
+      dose_unit: pluralSupplementUnit(countUnit, countPerDose)
+    };
+  }
+
+  if (strengthAmount !== null && strengthUnit) {
+    return {
+      dosage,
+      dose_amount: strengthAmount,
+      dose_unit: strengthUnit
+    };
+  }
+
+  return {
+    dosage,
+    dose_amount: totalDoseAmount,
+    dose_unit: totalDoseUnit || ''
+  };
+}
+
 function buildFoodCandidate(row, sourceLabel) {
   return {
     id: row.id,
@@ -331,6 +853,130 @@ function buildFoodCandidate(row, sourceLabel) {
 
 module.exports = function createAssistantRouter({ db }) {
   const router = express.Router();
+
+  async function searchLocalFoods(userId, query, limit = 8) {
+    const pattern = `%${String(query || '').toLowerCase()}%`;
+    const [libraryRows, loggedRows] = await Promise.all([
+      dbAll(
+        db,
+        `SELECT *
+         FROM scanned_foods
+         WHERE user_id = ?
+           AND (lower(name) LIKE ? OR lower(COALESCE(brand, '')) LIKE ?)
+         ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+         LIMIT ?`,
+        [userId, pattern, pattern, limit]
+      ),
+      dbAll(
+        db,
+        `SELECT name, brand, source, quantity_g, calories, protein, carbs, fat, fibre, MAX(datetime(logged_at)) AS last_logged_at
+         FROM food_logs
+         WHERE user_id = ?
+           AND (lower(name) LIKE ? OR lower(COALESCE(brand, '')) LIKE ?)
+         GROUP BY lower(name), lower(COALESCE(brand, ''))
+         ORDER BY last_logged_at DESC
+         LIMIT ?`,
+        [userId, pattern, pattern, limit]
+      )
+    ]);
+
+    return dedupeFoodCandidates([
+      ...libraryRows.map(normalizeLocalFood).filter(Boolean),
+      ...loggedRows.map(normalizeLoggedFood).filter(Boolean)
+    ]).slice(0, limit);
+  }
+
+  async function searchCofidFoods(query, limit = 8) {
+    const pattern = `%${String(query || '').toLowerCase()}%`;
+    const rows = await dbAll(
+      db,
+      `SELECT *
+       FROM cofid_foods
+       WHERE lower(name) LIKE ? OR lower(COALESCE(category, '')) LIKE ?
+       ORDER BY name ASC
+       LIMIT ?`,
+      [pattern, pattern, Math.max(limit * 3, 24)]
+    );
+
+    return rows
+      .map((row) => ({
+        id: String(row.id),
+        source: 'cofid',
+        name: row.name,
+        brand: row.category || null,
+        calories_per_100g: parseNumber(row.calories_per_100g),
+        protein_per_100g: parseNumber(row.protein_per_100g),
+        carbs_per_100g: parseNumber(row.carbs_per_100g),
+        fat_per_100g: parseNumber(row.fat_per_100g),
+        fibre_per_100g: parseNumber(row.fibre_per_100g),
+        serving_size_g: parseNumber(row.serving_size_g),
+        image_url: null
+      }))
+      .filter((item) => item.name)
+      .slice(0, limit);
+  }
+
+  async function searchRemoteFoods(query, limit = 8) {
+    if (String(query || '').trim().length < REMOTE_SEARCH_MIN_QUERY_LENGTH) {
+      return [];
+    }
+
+    try {
+      const [regionalResults, globalResults] = await Promise.all([
+        searchOpenFoodFacts(query, { country: 'gb', language: 'en' }).catch(() => []),
+        searchOpenFoodFacts(query, { country: null, language: 'en' }).catch(() => [])
+      ]);
+
+      return dedupeFoodCandidates([...regionalResults, ...globalResults]).slice(0, limit);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  async function searchFoodCandidates(userId, query, limit = 8) {
+    const [localResults, cofidResults] = await Promise.all([
+      searchLocalFoods(userId, query, limit),
+      searchCofidFoods(query, Math.max(limit, 8))
+    ]);
+    let remoteResults = [];
+
+    if (dedupeFoodCandidates([...localResults, ...cofidResults]).length < limit) {
+      remoteResults = await searchRemoteFoods(query, limit);
+    }
+
+    return dedupeFoodCandidates([...localResults, ...cofidResults, ...remoteResults]).slice(0, limit);
+  }
+
+  async function parseNutritionLabelPayload(payload) {
+    const image = await resolveImageDataUrl(payload || {});
+    const productNameHint = normalizeString(payload?.product_name_hint);
+    const warnings = [];
+
+    if (!image) {
+      throw Object.assign(new Error('image, image_base64, or image_path is required'), { statusCode: 400 });
+    }
+
+    try {
+      const parsed = await scanNutritionLabel({ image, productNameHint });
+      const populatedFields = [
+        parsed.calories_per_100g,
+        parsed.protein_per_100g,
+        parsed.carbs_per_100g,
+        parsed.fat_per_100g,
+        parsed.calories_per_serving
+      ].filter((value) => value !== null).length;
+
+      if (populatedFields < 3) {
+        warnings.push('Nutrition label extraction returned limited structured data. Confirm values before logging.');
+      }
+
+      return normalizeParsedLabelData(parsed, warnings);
+    } catch (error) {
+      throw Object.assign(new Error(error.message || 'Failed to parse nutrition label'), {
+        statusCode: error.statusCode || 502
+      });
+    }
+  }
 
   async function requireAssistantAuth(req, res, next) {
     const configuredKey = process.env.ASSISTANT_API_KEY;
@@ -405,7 +1051,7 @@ module.exports = function createAssistantRouter({ db }) {
   async function getSupplementLogById(userId, logId) {
     return dbGet(
       db,
-      `SELECT l.*, s.name AS supplement_name, s.brand AS supplement_brand, s.dose_amount, s.dose_unit
+      `SELECT l.*, s.name AS supplement_name, s.brand AS supplement_brand, s.notes AS supplement_notes, s.dose_amount, s.dose_unit, s.count_per_dose, s.count_unit, s.strength_amount, s.strength_unit, s.strength_basis, s.total_dose_amount, s.total_dose_unit
        FROM supplement_logs l
        JOIN supplements s ON s.id = l.supplement_id
        WHERE l.id = ? AND l.user_id = ?`,
@@ -424,6 +1070,267 @@ module.exports = function createAssistantRouter({ db }) {
        ORDER BY lower(trim(coalesce(brand, ''))), created_at DESC`,
       [userId, name]
     );
+  }
+
+  async function getSupplementGroupByName(userId, groupName) {
+    return dbGet(
+      db,
+      `SELECT *
+       FROM supplement_groups
+       WHERE user_id = ?
+         AND normalized_name = ?
+         AND is_active = 1`,
+      [userId, normalizeString(groupName)?.toLowerCase()]
+    );
+  }
+
+  async function getSupplementGroupSupplements(userId, groupId, options = {}) {
+    const includeInactive = options.includeInactive === true;
+
+    return dbAll(
+      db,
+      `SELECT s.*, m.position
+       FROM supplement_group_memberships m
+       JOIN supplements s ON s.id = m.supplement_id
+       WHERE m.user_id = ?
+         AND m.group_id = ?
+         ${includeInactive ? '' : 'AND s.is_active = 1'}
+       ORDER BY m.position ASC, lower(s.name) ASC`,
+      [userId, groupId]
+    );
+  }
+
+  async function listSupplementGroups(userId, options = {}) {
+    const groups = await dbAll(
+      db,
+      `SELECT *
+       FROM supplement_groups
+       WHERE user_id = ?
+         AND is_active = 1
+       ORDER BY lower(display_name), created_at ASC`,
+      [userId]
+    );
+
+    const includeSupplements = options.includeSupplements !== false;
+
+    if (!includeSupplements) {
+      return groups.map((group) => normalizeSupplementGroup(group, []));
+    }
+
+    const normalizedGroups = [];
+    for (const group of groups) {
+      const supplements = await getSupplementGroupSupplements(userId, group.id, { includeInactive: false });
+      normalizedGroups.push(normalizeSupplementGroup(group, supplements.map(normalizeSupplement)));
+    }
+
+    return normalizedGroups;
+  }
+
+  function normalizeSupplementIdList(value) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.map((item) => normalizeString(item)).filter(Boolean);
+  }
+
+  async function validateGroupSupplementIds(userId, supplementIds) {
+    const normalizedIds = normalizeSupplementIdList(supplementIds);
+    const duplicates = normalizedIds.filter((value, index) => normalizedIds.indexOf(value) !== index);
+
+    if (duplicates.length > 0) {
+      return {
+        error: {
+          status: 400,
+          code: 'duplicate_supplement_ids',
+          message: 'Duplicate supplement_ids were provided',
+          details: {
+            duplicate_ids: [...new Set(duplicates)]
+          }
+        }
+      };
+    }
+
+    const rows = [];
+    const invalidIds = [];
+    const inactiveIds = [];
+
+    for (const supplementId of normalizedIds) {
+      const supplement = await getSupplementById(userId, supplementId);
+      if (!supplement) {
+        invalidIds.push(supplementId);
+        continue;
+      }
+
+      if (!toBoolean(supplement.is_active)) {
+        inactiveIds.push(supplementId);
+        continue;
+      }
+
+      rows.push(supplement);
+    }
+
+    if (invalidIds.length > 0 || inactiveIds.length > 0) {
+      return {
+        error: {
+          status: 400,
+          code: 'invalid_supplement_group_members',
+          message: 'One or more supplement_ids could not be added to the group',
+          details: {
+            invalid_ids: invalidIds,
+            inactive_ids: inactiveIds
+          }
+        }
+      };
+    }
+
+    return {
+      supplementIds: normalizedIds,
+      rows
+    };
+  }
+
+  async function replaceSupplementGroupMemberships(userId, groupId, supplementIds) {
+    await dbRun(
+      db,
+      'DELETE FROM supplement_group_memberships WHERE user_id = ? AND group_id = ?',
+      [userId, groupId]
+    );
+
+    for (let index = 0; index < supplementIds.length; index += 1) {
+      await dbRun(
+        db,
+        `INSERT INTO supplement_group_memberships (id, group_id, supplement_id, user_id, position)
+         VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), groupId, supplementIds[index], userId, index]
+      );
+    }
+  }
+
+  async function getNormalizedSupplementGroupByName(userId, groupName) {
+    const group = await getSupplementGroupByName(userId, groupName);
+    if (!group) {
+      return null;
+    }
+
+    const supplements = await getSupplementGroupSupplements(userId, group.id, { includeInactive: false });
+    return normalizeSupplementGroup(group, supplements.map(normalizeSupplement));
+  }
+
+  async function resolveSupplementBatch(req, options = {}) {
+    const userId = req.user.userId;
+    const groupName = normalizeString(req.body && req.body.group_name);
+    const supplementIds = Array.isArray(req.body && req.body.supplement_ids)
+      ? req.body.supplement_ids.map((value) => normalizeString(value)).filter(Boolean)
+      : [];
+
+    if (groupName && supplementIds.length > 0) {
+      return {
+        error: {
+          status: 400,
+          code: 'validation_error',
+          message: 'Provide either group_name or supplement_ids, not both'
+        }
+      };
+    }
+
+    if (!groupName && supplementIds.length === 0) {
+      return {
+        error: {
+          status: 400,
+          code: 'validation_error',
+          message: 'group_name or supplement_ids is required'
+        }
+      };
+    }
+
+    if (supplementIds.length > 0) {
+      const duplicates = supplementIds.filter((value, index) => supplementIds.indexOf(value) !== index);
+      if (duplicates.length > 0) {
+        return {
+          error: {
+            status: 400,
+            code: 'duplicate_supplement_ids',
+            message: 'Duplicate supplement_ids were provided',
+            details: {
+              duplicate_ids: [...new Set(duplicates)]
+            }
+          }
+        };
+      }
+    }
+
+    let group = null;
+    let groupSupplements = [];
+    let requestedIds = supplementIds;
+
+    if (groupName) {
+      group = await getSupplementGroupByName(userId, groupName);
+      if (!group) {
+        return {
+          error: {
+            status: 404,
+            code: 'supplement_group_not_found',
+            message: `Supplement group ${groupName} was not found`
+          }
+        };
+      }
+
+      groupSupplements = await getSupplementGroupSupplements(userId, group.id, { includeInactive: false });
+      if (groupSupplements.length === 0) {
+        return {
+          error: {
+            status: 400,
+            code: 'empty_supplement_group',
+            message: `Supplement group ${group.name} has no active supplements`
+          }
+        };
+      }
+
+      requestedIds = groupSupplements.map((supplement) => supplement.id);
+    }
+
+    const resolvedRows = [];
+    const results = [];
+    for (const supplementId of requestedIds) {
+      const supplement = groupName
+        ? groupSupplements.find((item) => item.id === supplementId)
+        : await getSupplementById(userId, supplementId);
+
+      if (!supplement) {
+        results.push({
+          supplement_id: supplementId,
+          supplement_name: null,
+          status: 'failed',
+          error: 'Supplement not found for user'
+        });
+        continue;
+      }
+
+      if (!toBoolean(supplement.is_active)) {
+        results.push({
+          supplement_id: supplement.id,
+          supplement_name: supplement.name,
+          status: 'failed',
+          error: 'Supplement is inactive'
+        });
+        continue;
+      }
+
+      resolvedRows.push(supplement);
+      results.push({
+        supplement_id: supplement.id,
+        supplement_name: supplement.name,
+        status: options.mode === 'check' ? 'pending_check' : 'pending'
+      });
+    }
+
+    return {
+      group,
+      requestedIds,
+      resolvedRows,
+      results
+    };
   }
 
   async function getPeptideById(peptideId) {
@@ -565,6 +1472,14 @@ module.exports = function createAssistantRouter({ db }) {
     return { meal, foodLog };
   }
 
+  async function getMealById(userId, mealId) {
+    return dbGet(db, 'SELECT * FROM meals WHERE id = ? AND user_id = ?', [mealId, userId]);
+  }
+
+  async function getFoodLogById(userId, foodLogId) {
+    return dbGet(db, 'SELECT * FROM food_logs WHERE id = ? AND user_id = ?', [foodLogId, userId]);
+  }
+
   router.use(requireAssistantAuth);
 
   router.get('/daily-summary', async (req, res) => {
@@ -695,7 +1610,7 @@ module.exports = function createAssistantRouter({ db }) {
         ),
         dbAll(
           db,
-          `SELECT l.*, s.name AS supplement_name, s.brand AS supplement_brand, s.dose_amount, s.dose_unit
+          `SELECT l.*, s.name AS supplement_name, s.brand AS supplement_brand, s.notes AS supplement_notes, s.dose_amount, s.dose_unit, s.count_per_dose, s.count_unit, s.strength_amount, s.strength_unit, s.strength_basis, s.total_dose_amount, s.total_dose_unit
            FROM supplement_logs l
            JOIN supplements s ON s.id = l.supplement_id
            WHERE l.user_id = ?
@@ -712,6 +1627,156 @@ module.exports = function createAssistantRouter({ db }) {
     } catch (error) {
       console.error('Assistant supplements fetch failed:', error);
       return assistantError(res, 500, 'assistant_supplements_failed', 'Failed to fetch supplements');
+    }
+  });
+
+  router.get('/supplement-groups', async (req, res) => {
+    try {
+      const groups = await listSupplementGroups(req.user.userId, { includeSupplements: true });
+      return assistantSuccess(req, res, { groups });
+    } catch (error) {
+      console.error('Assistant supplement groups fetch failed:', error);
+      return assistantError(res, 500, 'assistant_supplement_groups_failed', 'Failed to fetch supplement groups');
+    }
+  });
+
+  router.get('/supplement-groups/:groupName', async (req, res) => {
+    try {
+      const group = await getSupplementGroupByName(req.user.userId, req.params.groupName);
+      if (!group) {
+        return assistantError(res, 404, 'supplement_group_not_found', `Supplement group ${req.params.groupName} was not found`);
+      }
+
+      const supplements = await getSupplementGroupSupplements(req.user.userId, group.id, { includeInactive: false });
+      return assistantSuccess(req, res, normalizeSupplementGroup(group, supplements.map(normalizeSupplement)));
+    } catch (error) {
+      console.error('Assistant supplement group fetch failed:', error);
+      return assistantError(res, 500, 'assistant_supplement_group_failed', 'Failed to fetch supplement group');
+    }
+  });
+
+  router.post('/supplement-groups', async (req, res) => {
+    try {
+      const name = normalizeString(req.body && req.body.name);
+      const displayName = normalizeString(req.body && req.body.display_name) || name;
+
+      if (!name) {
+        return assistantError(res, 400, 'validation_error', 'name is required');
+      }
+
+      const existing = await getSupplementGroupByName(req.user.userId, name);
+      if (existing) {
+        return assistantError(res, 409, 'supplement_group_exists', `Supplement group ${name} already exists`);
+      }
+
+      const validatedMembers = await validateGroupSupplementIds(req.user.userId, req.body && req.body.supplement_ids);
+      if (validatedMembers.error) {
+        return assistantError(
+          res,
+          validatedMembers.error.status,
+          validatedMembers.error.code,
+          validatedMembers.error.message,
+          validatedMembers.error.details ? { details: validatedMembers.error.details } : {}
+        );
+      }
+
+      const groupId = uuidv4();
+      await dbRun(
+        db,
+        `INSERT INTO supplement_groups (id, user_id, name, normalized_name, display_name, is_default, is_active, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)`,
+        [groupId, req.user.userId, name, name.toLowerCase(), displayName]
+      );
+
+      await replaceSupplementGroupMemberships(req.user.userId, groupId, validatedMembers.supplementIds);
+
+      const createdGroup = await getNormalizedSupplementGroupByName(req.user.userId, name);
+      return assistantSuccess(req, res, createdGroup, {
+        status: 201,
+        ids: { group_id: groupId },
+        verified: true
+      });
+    } catch (error) {
+      console.error('Assistant supplement group create failed:', error);
+      return assistantError(res, 500, 'assistant_create_supplement_group_failed', 'Failed to create supplement group');
+    }
+  });
+
+  router.put('/supplement-groups/:groupName', async (req, res) => {
+    try {
+      const currentGroup = await getSupplementGroupByName(req.user.userId, req.params.groupName);
+      if (!currentGroup) {
+        return assistantError(res, 404, 'supplement_group_not_found', `Supplement group ${req.params.groupName} was not found`);
+      }
+
+      const nextName = normalizeString(req.body && req.body.name) || currentGroup.name;
+      const nextDisplayName = req.body && Object.prototype.hasOwnProperty.call(req.body, 'display_name')
+        ? (normalizeString(req.body.display_name) || nextName)
+        : (currentGroup.display_name || currentGroup.name);
+
+      if (nextName.toLowerCase() !== String(currentGroup.normalized_name || currentGroup.name).toLowerCase()) {
+        const conflictingGroup = await getSupplementGroupByName(req.user.userId, nextName);
+        if (conflictingGroup && conflictingGroup.id !== currentGroup.id) {
+          return assistantError(res, 409, 'supplement_group_exists', `Supplement group ${nextName} already exists`);
+        }
+      }
+
+      const currentSupplements = await getSupplementGroupSupplements(req.user.userId, currentGroup.id, { includeInactive: false });
+      const nextSupplementIds = req.body && Object.prototype.hasOwnProperty.call(req.body, 'supplement_ids')
+        ? req.body.supplement_ids
+        : currentSupplements.map((item) => item.id);
+      const validatedMembers = await validateGroupSupplementIds(req.user.userId, nextSupplementIds);
+      if (validatedMembers.error) {
+        return assistantError(
+          res,
+          validatedMembers.error.status,
+          validatedMembers.error.code,
+          validatedMembers.error.message,
+          validatedMembers.error.details ? { details: validatedMembers.error.details } : {}
+        );
+      }
+
+      await dbRun(
+        db,
+        `UPDATE supplement_groups
+         SET name = ?, normalized_name = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ?`,
+        [nextName, nextName.toLowerCase(), nextDisplayName, currentGroup.id, req.user.userId]
+      );
+      await replaceSupplementGroupMemberships(req.user.userId, currentGroup.id, validatedMembers.supplementIds);
+
+      const updatedGroup = await getNormalizedSupplementGroupByName(req.user.userId, nextName);
+      return assistantSuccess(req, res, updatedGroup, {
+        ids: { group_id: currentGroup.id },
+        verified: true
+      });
+    } catch (error) {
+      console.error('Assistant supplement group update failed:', error);
+      return assistantError(res, 500, 'assistant_update_supplement_group_failed', 'Failed to update supplement group');
+    }
+  });
+
+  router.delete('/supplement-groups/:groupName', async (req, res) => {
+    try {
+      const group = await getSupplementGroupByName(req.user.userId, req.params.groupName);
+      if (!group) {
+        return assistantError(res, 404, 'supplement_group_not_found', `Supplement group ${req.params.groupName} was not found`);
+      }
+
+      const deletedGroup = await getNormalizedSupplementGroupByName(req.user.userId, req.params.groupName);
+      await dbRun(db, 'DELETE FROM supplement_group_memberships WHERE user_id = ? AND group_id = ?', [req.user.userId, group.id]);
+      await dbRun(db, 'DELETE FROM supplement_groups WHERE user_id = ? AND id = ?', [req.user.userId, group.id]);
+
+      return assistantSuccess(req, res, {
+        deleted_group: deletedGroup,
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { group_id: group.id },
+        verified: true
+      });
+    } catch (error) {
+      console.error('Assistant supplement group delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_supplement_group_failed', 'Failed to delete supplement group');
     }
   });
 
@@ -859,19 +1924,85 @@ module.exports = function createAssistantRouter({ db }) {
     }
   });
 
+  router.get('/food/search', async (req, res) => {
+    const query = normalizeString(req.query.query) || normalizeString(req.query.q);
+    const limit = Math.min(parseInteger(req.query.limit) || 8, 20);
+
+    if (!query) {
+      return assistantError(res, 400, 'validation_error', 'query is required');
+    }
+
+    try {
+      const candidates = await searchFoodCandidates(req.user.userId, query, limit);
+      return assistantSuccess(req, res, {
+        query,
+        candidates
+      });
+    } catch (error) {
+      console.error('Assistant food search failed:', error);
+      return assistantError(res, 500, 'assistant_food_search_failed', 'Failed to search foods');
+    }
+  });
+
+  router.get('/food/barcode/:code', async (req, res) => {
+    const code = normalizeString(req.params.code);
+
+    if (!code) {
+      return assistantError(res, 400, 'validation_error', 'barcode is required');
+    }
+
+    try {
+      const candidate = await lookupOffBarcode(code);
+
+      if (!candidate) {
+        return assistantError(res, 404, 'not_found', 'No product matched the provided barcode', {
+          details: { barcode: code }
+        });
+      }
+
+      return assistantSuccess(req, res, {
+        barcode: code,
+        candidate
+      });
+    } catch (error) {
+      console.error('Assistant barcode lookup failed:', error);
+      return assistantError(res, error.statusCode || 500, 'assistant_food_barcode_failed', 'Failed to resolve barcode');
+    }
+  });
+
+  router.post('/food/parse-label', async (req, res) => {
+    try {
+      const parsed = await parseNutritionLabelPayload(req.body || {});
+      const warnings = [...(parsed.warnings || [])];
+
+      if ((parsed.confidence !== null && parsed.confidence < 0.75) || parsed.calories_per_100g === null) {
+        warnings.push('Label parse confidence is limited. Confirm the extracted nutrition before logging.');
+      }
+
+      return assistantSuccess(req, res, {
+        parsed_label: {
+          ...parsed,
+          warnings: undefined
+        }
+      }, {
+        warnings
+      });
+    } catch (error) {
+      console.error('Assistant label parsing failed:', error);
+      return assistantError(res, error.statusCode || 500, 'assistant_food_parse_label_failed', error.message || 'Failed to parse nutrition label');
+    }
+  });
+
   router.post('/log-food', async (req, res) => {
     const payload = req.body || {};
     const name = normalizeString(payload.name);
     const brand = normalizeString(payload.brand);
     const source = normalizeString(payload.source);
     const foodId = normalizeString(payload.food_id);
+    const barcode = normalizeString(payload.barcode);
     const quantityG = parseNumber(payload.quantity_g);
     const mealType = validateMealType(payload.meal_type);
     const loggedAt = normalizeString(payload.logged_at) || new Date().toISOString();
-
-    if (!name) {
-      return assistantError(res, 400, 'validation_error', 'name is required');
-    }
 
     if (quantityG === null || quantityG <= 0) {
       return assistantError(res, 400, 'validation_error', 'quantity_g must be a positive number');
@@ -882,14 +2013,52 @@ module.exports = function createAssistantRouter({ db }) {
     const providedCarbs = parseNumber(payload.carbs);
     const providedFat = parseNumber(payload.fat);
     const providedFibre = parseNumber(payload.fibre);
-
-    let resolvedFood = null;
+    const resolvedFoodPayload = payload.resolved_food && typeof payload.resolved_food === 'object' ? payload.resolved_food : null;
+    const parsedLabelPayload = payload.parsed_label && typeof payload.parsed_label === 'object' ? payload.parsed_label : null;
 
     try {
       const hasDirectNutrition = providedCalories !== null;
+      let finalFood = null;
+      let finalName = name;
+      let finalBrand = brand;
+      let nutritionWarnings = [];
 
-      if (!hasDirectNutrition || foodId) {
-        resolvedFood = await getFoodReference(req.user.userId, foodId, source, name, brand);
+      if (resolvedFoodPayload) {
+        finalFood = {
+          id: normalizeString(resolvedFoodPayload.id),
+          source: normalizeString(resolvedFoodPayload.source) || 'assistant',
+          name: normalizeString(resolvedFoodPayload.name),
+          brand: normalizeString(resolvedFoodPayload.brand),
+          serving_size_g: parseNumber(resolvedFoodPayload.serving_size_g),
+          calories_per_100g: parseNumber(resolvedFoodPayload.calories_per_100g),
+          protein_per_100g: parseNumber(resolvedFoodPayload.protein_per_100g),
+          carbs_per_100g: parseNumber(resolvedFoodPayload.carbs_per_100g),
+          fat_per_100g: parseNumber(resolvedFoodPayload.fat_per_100g),
+          fibre_per_100g: parseNumber(resolvedFoodPayload.fibre_per_100g)
+        };
+      } else if (parsedLabelPayload) {
+        finalFood = {
+          id: null,
+          source: 'label-parse',
+          name: normalizeString(parsedLabelPayload.name) || name,
+          brand: normalizeString(parsedLabelPayload.brand) || brand,
+          serving_size_g: parseNumber(parsedLabelPayload.serving_size_g),
+          calories_per_100g: parseNumber(parsedLabelPayload.calories_per_100g),
+          protein_per_100g: parseNumber(parsedLabelPayload.protein_per_100g),
+          carbs_per_100g: parseNumber(parsedLabelPayload.carbs_per_100g),
+          fat_per_100g: parseNumber(parsedLabelPayload.fat_per_100g),
+          fibre_per_100g: parseNumber(parsedLabelPayload.fibre_per_100g)
+        };
+        nutritionWarnings = [...(Array.isArray(parsedLabelPayload.warnings) ? parsedLabelPayload.warnings : [])];
+      } else if (barcode) {
+        finalFood = await lookupOffBarcode(barcode);
+        if (!finalFood) {
+          return assistantError(res, 404, 'not_found', 'No product matched the provided barcode', {
+            details: { barcode }
+          });
+        }
+      } else if (!hasDirectNutrition || foodId) {
+        const resolvedFood = await getFoodReference(req.user.userId, foodId, source, name, brand);
 
         if (resolvedFood && resolvedFood.ambiguous) {
           return assistantError(res, 409, 'ambiguous_food_match', 'Multiple foods match the provided reference', {
@@ -897,17 +2066,37 @@ module.exports = function createAssistantRouter({ db }) {
           });
         }
 
-        if (!resolvedFood && !hasDirectNutrition) {
-          return assistantError(res, 400, 'insufficient_food_data', 'Food could not be logged because calories were not provided and no exact food reference could be resolved', {
-            details: {
-              required: ['calories', 'or an exact local/cofid food match'],
-              supplied_name: name
-            }
-          });
+        if (resolvedFood) {
+          finalFood = buildFoodCandidate(resolvedFood.row, resolvedFood.source);
+        } else if (!hasDirectNutrition && name) {
+          const candidates = await searchFoodCandidates(req.user.userId, name, 8);
+          if (candidates.length > 1) {
+            return assistantError(res, 409, 'ambiguous_food_match', 'Multiple food candidates matched the provided name', {
+              candidates
+            });
+          }
+          if (candidates.length === 1) {
+            finalFood = candidates[0];
+          }
         }
       }
 
-      const finalFood = resolvedFood ? buildFoodCandidate(resolvedFood.row, resolvedFood.source) : null;
+      if (!hasDirectNutrition && !finalFood) {
+        return assistantError(res, 400, 'insufficient_food_data', 'Food could not be logged because there was not enough nutrition data and no unique product could be resolved', {
+          details: {
+            required: ['explicit calories', 'or barcode', 'or resolved_food', 'or parsed_label', 'or a unique search match'],
+            supplied_name: name
+          }
+        });
+      }
+
+      finalName = finalFood?.name || finalName;
+      finalBrand = finalFood?.brand || finalBrand;
+
+      if (!finalName) {
+        return assistantError(res, 400, 'validation_error', 'name is required unless the resolved product includes one');
+      }
+
       const foodLogId = uuidv4();
       const mealId = uuidv4();
       const foodLogRow = {
@@ -915,17 +2104,26 @@ module.exports = function createAssistantRouter({ db }) {
         user_id: req.user.userId,
         food_id: finalFood ? finalFood.id : foodId,
         source: finalFood ? finalFood.source : source,
-        name: finalFood ? finalFood.name : name,
-        brand: finalFood ? finalFood.brand : brand,
+        name: finalName,
+        brand: finalBrand,
         quantity_g: quantityG,
         meal_type: mealType,
-        calories: providedCalories !== null ? providedCalories : scalePer100(finalFood.calories_per_100g, quantityG),
-        protein: providedProtein !== null ? providedProtein : scalePer100(finalFood.protein_per_100g, quantityG),
-        carbs: providedCarbs !== null ? providedCarbs : scalePer100(finalFood.carbs_per_100g, quantityG),
-        fat: providedFat !== null ? providedFat : scalePer100(finalFood.fat_per_100g, quantityG),
-        fibre: providedFibre !== null ? providedFibre : scalePer100(finalFood.fibre_per_100g, quantityG),
+        calories: providedCalories !== null ? providedCalories : scalePer100(finalFood?.calories_per_100g, quantityG),
+        protein: providedProtein !== null ? providedProtein : scalePer100(finalFood?.protein_per_100g, quantityG),
+        carbs: providedCarbs !== null ? providedCarbs : scalePer100(finalFood?.carbs_per_100g, quantityG),
+        fat: providedFat !== null ? providedFat : scalePer100(finalFood?.fat_per_100g, quantityG),
+        fibre: providedFibre !== null ? providedFibre : scalePer100(finalFood?.fibre_per_100g, quantityG),
         logged_at: loggedAt
       };
+
+      if (foodLogRow.calories === null) {
+        return assistantError(res, 400, 'insufficient_food_data', 'Resolved food did not include enough nutrition data to log this quantity', {
+          details: {
+            quantity_g: quantityG,
+            source: finalFood?.source || source || null
+          }
+        });
+      }
 
       await dbRun(db, 'BEGIN TRANSACTION');
 
@@ -991,7 +2189,8 @@ module.exports = function createAssistantRouter({ db }) {
       }, {
         status: 201,
         ids: { meal_id: mealId, food_log_id: foodLogId },
-        verified
+        verified,
+        warnings: nutritionWarnings
       });
     } catch (error) {
       console.error('Assistant food log failed:', error);
@@ -1060,6 +2259,163 @@ module.exports = function createAssistantRouter({ db }) {
     } catch (error) {
       console.error('Assistant supplement log failed:', error);
       return assistantError(res, 500, 'assistant_log_supplement_failed', 'Failed to log supplement');
+    }
+  });
+
+  router.post('/log-supplement-group', async (req, res) => {
+    try {
+      const takenAt = normalizeString(req.body && req.body.taken_at) || new Date().toISOString();
+      const notes = normalizeString(req.body && req.body.notes);
+      const resolved = await resolveSupplementBatch(req);
+
+      if (resolved.error) {
+        return assistantError(
+          res,
+          resolved.error.status,
+          resolved.error.code,
+          resolved.error.message,
+          resolved.error.details ? { details: resolved.error.details } : {}
+        );
+      }
+
+      const results = [...resolved.results];
+
+      for (const supplement of resolved.resolvedRows) {
+        const resultIndex = results.findIndex((item) => item.supplement_id === supplement.id);
+        const logId = uuidv4();
+
+        try {
+          await dbRun(
+            db,
+            'INSERT INTO supplement_logs (id, supplement_id, user_id, taken_at, notes) VALUES (?, ?, ?, ?, ?)',
+            [logId, supplement.id, req.user.userId, takenAt, notes || '']
+          );
+
+          const verifiedRow = await getSupplementLogById(req.user.userId, logId);
+          if (!verifiedRow) {
+            results[resultIndex] = {
+              supplement_id: supplement.id,
+              supplement_name: supplement.name,
+              status: 'failed',
+              error: 'Supplement log insert was not verifiable'
+            };
+            continue;
+          }
+
+          results[resultIndex] = {
+            supplement_id: supplement.id,
+            supplement_name: supplement.name,
+            status: 'created',
+            supplement_log_id: logId,
+            verified: true,
+            supplement_log: normalizeSupplementLog(verifiedRow)
+          };
+        } catch (error) {
+          results[resultIndex] = {
+            supplement_id: supplement.id,
+            supplement_name: supplement.name,
+            status: 'failed',
+            error: error.message || 'Failed to create supplement log'
+          };
+        }
+      }
+
+      const summary = {
+        requested: resolved.requestedIds.length,
+        resolved: resolved.resolvedRows.length,
+        succeeded: results.filter((item) => item.status === 'created').length,
+        failed: results.filter((item) => item.status === 'failed').length
+      };
+      const verified = summary.failed === 0 && summary.succeeded === resolved.resolvedRows.length;
+      const groupName = resolved.group ? resolved.group.name : null;
+
+      return res.status(verified ? 200 : 207).json({
+        success: verified,
+        warnings: req.assistantWarnings || [],
+        verified,
+        summary,
+        data: {
+          group_name: groupName,
+          taken_at: takenAt,
+          results
+        }
+      });
+    } catch (error) {
+      console.error('Assistant supplement group logging failed:', error);
+      return assistantError(res, 500, 'assistant_log_supplement_group_failed', 'Failed to log supplement group');
+    }
+  });
+
+  router.post('/check-supplement-group', async (req, res) => {
+    try {
+      const date = normalizeString(req.body && req.body.date);
+      if (!validateIsoDate(date)) {
+        return assistantError(res, 400, 'validation_error', 'date is required in YYYY-MM-DD format');
+      }
+
+      const resolved = await resolveSupplementBatch(req, { mode: 'check' });
+      if (resolved.error) {
+        return assistantError(
+          res,
+          resolved.error.status,
+          resolved.error.code,
+          resolved.error.message,
+          resolved.error.details ? { details: resolved.error.details } : {}
+        );
+      }
+
+      const results = [];
+      for (const result of resolved.results) {
+        if (result.status === 'failed') {
+          results.push({
+            supplement_id: result.supplement_id,
+            supplement_name: result.supplement_name,
+            logged: false,
+            supplement_log_id: null,
+            latest_taken_at: null,
+            error: result.error
+          });
+          continue;
+        }
+
+        const verifiedLog = await dbGet(
+          db,
+          `SELECT id, taken_at
+           FROM supplement_logs
+           WHERE user_id = ?
+             AND supplement_id = ?
+             AND date(taken_at) = date(?)
+           ORDER BY datetime(taken_at) DESC, rowid DESC
+           LIMIT 1`,
+          [req.user.userId, result.supplement_id, date]
+        );
+
+        results.push({
+          supplement_id: result.supplement_id,
+          supplement_name: result.supplement_name,
+          logged: Boolean(verifiedLog),
+          supplement_log_id: verifiedLog ? verifiedLog.id : null,
+          latest_taken_at: verifiedLog ? verifiedLog.taken_at : null
+        });
+      }
+
+      const summary = {
+        total: results.length,
+        logged: results.filter((item) => item.logged).length,
+        missing: results.filter((item) => !item.logged).length
+      };
+
+      return assistantSuccess(req, res, {
+        group_name: resolved.group ? resolved.group.name : null,
+        date,
+        summary,
+        results
+      }, {
+        verified: summary.missing === 0
+      });
+    } catch (error) {
+      console.error('Assistant supplement group check failed:', error);
+      return assistantError(res, 500, 'assistant_check_supplement_group_failed', 'Failed to check supplement group');
     }
   });
 
@@ -1249,9 +2605,22 @@ module.exports = function createAssistantRouter({ db }) {
   router.post('/supplements', async (req, res) => {
     const name = normalizeString(req.body && req.body.name);
     const brand = normalizeString(req.body && req.body.brand);
-    const doseAmount = parseNumber(req.body && req.body.dose_amount);
-    const doseUnit = normalizeString(req.body && req.body.dose_unit);
-    const dosage = buildSupplementDosageText(doseAmount, doseUnit, req.body && req.body.dosage);
+    const countPerDose = parseNumber(req.body && (req.body.count_per_dose ?? req.body.dose_amount));
+    const countUnit = normalizeString(req.body && (req.body.count_unit ?? req.body.dose_unit));
+    const strengthAmount = parseNumber(req.body && req.body.strength_amount);
+    const strengthUnit = normalizeString(req.body && req.body.strength_unit);
+    const strengthBasis = normalizeString(req.body && req.body.strength_basis);
+    const totalDoseAmount = parseNumber(req.body && req.body.total_dose_amount);
+    const totalDoseUnit = normalizeString(req.body && req.body.total_dose_unit);
+    const legacySupplement = buildLegacySupplementFields({
+      dosage: req.body && req.body.dosage,
+      count_per_dose: countPerDose,
+      count_unit: countUnit,
+      strength_amount: strengthAmount,
+      strength_unit: strengthUnit,
+      total_dose_amount: totalDoseAmount,
+      total_dose_unit: totalDoseUnit
+    });
     const servingsPerContainer = parseInteger(req.body && req.body.servings_per_container);
     const frequency = normalizeString(req.body && req.body.frequency);
     const timeOfDay = normalizeString(req.body && req.body.time_of_day);
@@ -1266,16 +2635,23 @@ module.exports = function createAssistantRouter({ db }) {
       await dbRun(
         db,
         `INSERT INTO supplements
-         (id, user_id, name, brand, dosage, dose_amount, dose_unit, servings_per_container, frequency, time_of_day, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, user_id, name, brand, dosage, dose_amount, dose_unit, count_per_dose, count_unit, strength_amount, strength_unit, strength_basis, total_dose_amount, total_dose_unit, servings_per_container, frequency, time_of_day, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           supplementId,
           req.user.userId,
           name,
           brand || '',
-          dosage || '',
-          doseAmount,
-          doseUnit || '',
+          legacySupplement.dosage || '',
+          legacySupplement.dose_amount,
+          legacySupplement.dose_unit || '',
+          countPerDose,
+          singularSupplementUnit(countUnit) || '',
+          strengthAmount,
+          strengthUnit || '',
+          strengthBasis || '',
+          totalDoseAmount,
+          totalDoseUnit || '',
           servingsPerContainer,
           frequency || '',
           timeOfDay || '',
@@ -1315,15 +2691,36 @@ module.exports = function createAssistantRouter({ db }) {
       const brand = req.body && Object.prototype.hasOwnProperty.call(req.body, 'brand')
         ? (normalizeString(req.body.brand) || '')
         : current.brand;
-      const nextDoseAmount = req.body && Object.prototype.hasOwnProperty.call(req.body, 'dose_amount')
-        ? parseNumber(req.body.dose_amount)
-        : parseNumber(current.dose_amount);
-      const nextDoseUnit = req.body && Object.prototype.hasOwnProperty.call(req.body, 'dose_unit')
-        ? (normalizeString(req.body.dose_unit) || '')
-        : current.dose_unit;
-      const dosage = req.body && Object.prototype.hasOwnProperty.call(req.body, 'dosage')
-        ? buildSupplementDosageText(nextDoseAmount, nextDoseUnit, req.body.dosage)
-        : buildSupplementDosageText(nextDoseAmount, nextDoseUnit, current.dosage);
+      const nextCountPerDose = req.body && Object.prototype.hasOwnProperty.call(req.body, 'count_per_dose')
+        ? parseNumber(req.body.count_per_dose)
+        : parseNumber(current.count_per_dose);
+      const nextCountUnit = req.body && Object.prototype.hasOwnProperty.call(req.body, 'count_unit')
+        ? (normalizeString(req.body.count_unit) || '')
+        : current.count_unit;
+      const nextStrengthAmount = req.body && Object.prototype.hasOwnProperty.call(req.body, 'strength_amount')
+        ? parseNumber(req.body.strength_amount)
+        : parseNumber(current.strength_amount);
+      const nextStrengthUnit = req.body && Object.prototype.hasOwnProperty.call(req.body, 'strength_unit')
+        ? (normalizeString(req.body.strength_unit) || '')
+        : current.strength_unit;
+      const nextStrengthBasis = req.body && Object.prototype.hasOwnProperty.call(req.body, 'strength_basis')
+        ? (normalizeString(req.body.strength_basis) || '')
+        : current.strength_basis;
+      const nextTotalDoseAmount = req.body && Object.prototype.hasOwnProperty.call(req.body, 'total_dose_amount')
+        ? parseNumber(req.body.total_dose_amount)
+        : parseNumber(current.total_dose_amount);
+      const nextTotalDoseUnit = req.body && Object.prototype.hasOwnProperty.call(req.body, 'total_dose_unit')
+        ? (normalizeString(req.body.total_dose_unit) || '')
+        : current.total_dose_unit;
+      const legacySupplement = buildLegacySupplementFields({
+        dosage: req.body && Object.prototype.hasOwnProperty.call(req.body, 'dosage') ? req.body.dosage : current.dosage,
+        count_per_dose: nextCountPerDose,
+        count_unit: nextCountUnit,
+        strength_amount: nextStrengthAmount,
+        strength_unit: nextStrengthUnit,
+        total_dose_amount: nextTotalDoseAmount,
+        total_dose_unit: nextTotalDoseUnit
+      });
       const servingsPerContainer = req.body && Object.prototype.hasOwnProperty.call(req.body, 'servings_per_container')
         ? parseInteger(req.body.servings_per_container)
         : parseInteger(current.servings_per_container);
@@ -1343,14 +2740,21 @@ module.exports = function createAssistantRouter({ db }) {
       await dbRun(
         db,
         `UPDATE supplements
-         SET name = ?, brand = ?, dosage = ?, dose_amount = ?, dose_unit = ?, servings_per_container = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ?
+         SET name = ?, brand = ?, dosage = ?, dose_amount = ?, dose_unit = ?, count_per_dose = ?, count_unit = ?, strength_amount = ?, strength_unit = ?, strength_basis = ?, total_dose_amount = ?, total_dose_unit = ?, servings_per_container = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ?
          WHERE id = ? AND user_id = ?`,
         [
           name,
           brand || '',
-          dosage || '',
-          nextDoseAmount,
-          nextDoseUnit || '',
+          legacySupplement.dosage || '',
+          legacySupplement.dose_amount,
+          legacySupplement.dose_unit || '',
+          nextCountPerDose,
+          singularSupplementUnit(nextCountUnit) || '',
+          nextStrengthAmount,
+          nextStrengthUnit || '',
+          nextStrengthBasis || '',
+          nextTotalDoseAmount,
+          nextTotalDoseUnit || '',
           servingsPerContainer,
           frequency || '',
           timeOfDay || '',
@@ -1664,6 +3068,176 @@ module.exports = function createAssistantRouter({ db }) {
     } catch (error) {
       console.error('Assistant peptide config update failed:', error);
       return assistantError(res, 500, 'assistant_update_peptide_config_failed', 'Failed to update peptide configuration');
+    }
+  });
+
+  router.delete('/meals/:id', async (req, res) => {
+    try {
+      const meal = await getMealById(req.user.userId, req.params.id);
+      if (!meal) {
+        return assistantError(res, 404, 'not_found', 'Meal not found');
+      }
+
+      await dbRun(db, 'DELETE FROM meals WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId]);
+      const verified = !(await getMealById(req.user.userId, req.params.id));
+
+      return assistantSuccess(req, res, {
+        deleted: normalizeMeal(meal),
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { meal_id: req.params.id },
+        verified
+      });
+    } catch (error) {
+      console.error('Assistant meal delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_meal_failed', 'Failed to delete meal');
+    }
+  });
+
+  router.delete('/food-logs/:id', async (req, res) => {
+    try {
+      const foodLog = await getFoodLogById(req.user.userId, req.params.id);
+      if (!foodLog) {
+        return assistantError(res, 404, 'not_found', 'Food log not found');
+      }
+
+      await dbRun(db, 'DELETE FROM food_logs WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId]);
+      const verified = !(await getFoodLogById(req.user.userId, req.params.id));
+
+      return assistantSuccess(req, res, {
+        deleted: normalizeFoodLog(foodLog),
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { food_log_id: req.params.id },
+        verified
+      });
+    } catch (error) {
+      console.error('Assistant food log delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_food_log_failed', 'Failed to delete food log');
+    }
+  });
+
+  router.delete('/supplement-logs/:id', async (req, res) => {
+    try {
+      const supplementLog = await getSupplementLogById(req.user.userId, req.params.id);
+      if (!supplementLog) {
+        return assistantError(res, 404, 'not_found', 'Supplement log not found');
+      }
+
+      await dbRun(db, 'DELETE FROM supplement_logs WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId]);
+      const verified = !(await getSupplementLogById(req.user.userId, req.params.id));
+
+      return assistantSuccess(req, res, {
+        deleted: normalizeSupplementLog(supplementLog),
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { supplement_log_id: req.params.id },
+        verified
+      });
+    } catch (error) {
+      console.error('Assistant supplement log delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_supplement_log_failed', 'Failed to delete supplement log');
+    }
+  });
+
+  router.delete('/supplements/:id', async (req, res) => {
+    try {
+      const supplement = await getSupplementById(req.user.userId, req.params.id);
+      if (!supplement) {
+        return assistantError(res, 404, 'not_found', 'Supplement not found');
+      }
+
+      await dbRun(
+        db,
+        'UPDATE supplements SET is_active = 0 WHERE id = ? AND user_id = ?',
+        [req.params.id, req.user.userId]
+      );
+      const persisted = await getSupplementById(req.user.userId, req.params.id);
+
+      return assistantSuccess(req, res, {
+        deleted: normalizeSupplement(persisted),
+        deletion_mode: 'soft_delete'
+      }, {
+        ids: { supplement_id: req.params.id },
+        verified: persisted ? persisted.is_active === 0 : false
+      });
+    } catch (error) {
+      console.error('Assistant supplement delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_supplement_failed', 'Failed to disable supplement');
+    }
+  });
+
+  router.delete('/peptide-doses/:id', async (req, res) => {
+    try {
+      const dose = await getPeptideDoseById(req.user.userId, req.params.id);
+      if (!dose) {
+        return assistantError(res, 404, 'not_found', 'Peptide dose not found');
+      }
+
+      await dbRun(db, 'DELETE FROM peptide_doses WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId]);
+      const verified = !(await getPeptideDoseById(req.user.userId, req.params.id));
+
+      return assistantSuccess(req, res, {
+        deleted: normalizePeptideDose(dose),
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { dose_id: req.params.id },
+        verified
+      });
+    } catch (error) {
+      console.error('Assistant peptide dose delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_peptide_dose_failed', 'Failed to delete peptide dose');
+    }
+  });
+
+  router.delete('/peptide-configs/:id', async (req, res) => {
+    try {
+      const current = await getPeptideConfigById(req.user.userId, req.params.id);
+      if (!current) {
+        return assistantError(res, 404, 'not_found', 'Peptide configuration not found');
+      }
+
+      const now = new Date().toISOString();
+      await dbRun(
+        db,
+        'UPDATE user_peptide_configs SET is_active = 0, updated_at = ? WHERE id = ? AND user_id = ?',
+        [now, req.params.id, req.user.userId]
+      );
+      const persisted = await getPeptideConfigById(req.user.userId, req.params.id);
+
+      return assistantSuccess(req, res, {
+        deleted: normalizePeptideConfig(persisted),
+        deletion_mode: 'soft_delete'
+      }, {
+        ids: { config_id: req.params.id },
+        verified: persisted ? persisted.is_active === 0 : false
+      });
+    } catch (error) {
+      console.error('Assistant peptide config delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_peptide_config_failed', 'Failed to disable peptide configuration');
+    }
+  });
+
+  router.delete('/blood-results/:id', async (req, res) => {
+    try {
+      const bloodResult = await getBloodResultById(req.user.userId, req.params.id);
+      if (!bloodResult) {
+        return assistantError(res, 404, 'not_found', 'Blood result not found');
+      }
+
+      await dbRun(db, 'DELETE FROM blood_results WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId]);
+      const verified = !(await getBloodResultById(req.user.userId, req.params.id));
+
+      return assistantSuccess(req, res, {
+        deleted: normalizeBloodResult(bloodResult),
+        deletion_mode: 'hard_delete'
+      }, {
+        ids: { blood_result_id: req.params.id },
+        verified
+      });
+    } catch (error) {
+      console.error('Assistant blood result delete failed:', error);
+      return assistantError(res, 500, 'assistant_delete_blood_result_failed', 'Failed to delete blood result');
     }
   });
 

@@ -32,6 +32,124 @@ const JWT_SECRET = process.env.JWT_SECRET || 'peptifit-secret-key-change-in-prod
 const COFID_REFRESH_KEY = process.env.COFID_REFRESH_KEY || 'peptifit-cofid-refresh-key-change-in-production';
 const COFID_REFRESH_CRON = process.env.COFID_REFRESH_CRON || '';
 let cofidRefreshInProgress = false;
+const PRACTICAL_COUNT_UNITS = new Set(['tablet', 'tablets', 'capsule', 'capsules', 'softgel', 'softgels', 'ml', 'scoop', 'scoops', 'drop', 'drops', 'serving', 'servings']);
+const STRENGTH_UNITS = new Set(['mg', 'mcg', 'g', 'kg', 'iu', 'µg']);
+const DEFAULT_SUPPLEMENT_GROUP_DEFINITIONS = [
+  {
+    name: 'morning',
+    displayName: 'Morning',
+    supplementNames: [
+      'Ashwagandha KSM-66',
+      'Citrus Bergamot 1200mg',
+      "Pyridoxal 5 Phosphate 'P-5-P' 50mg (Vitamin B6)",
+      'Tongkat Ali',
+      'Vitamin D3',
+      'Vitamin E',
+      'Omega 3 Fish Oil',
+      'Tadalafil 10mg'
+    ]
+  },
+  {
+    name: 'evening',
+    displayName: 'Evening',
+    supplementNames: [
+      'Boron 10mg',
+      'Iron Bisglycinate with Vitamin C',
+      'Omega 3 Fish Oil'
+    ]
+  },
+  {
+    name: 'bedtime',
+    displayName: 'Bedtime',
+    supplementNames: [
+      'Magnesium Glycinate 3-in-1 1800mg',
+      'Zinc Picolinate 22mg',
+      'Niacin (Flush)'
+    ]
+  }
+];
+
+function normalizeGroupKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function seedDefaultSupplementGroups(database) {
+  database.all('SELECT id FROM users ORDER BY created_at ASC', (userErr, users) => {
+    if (userErr) {
+      console.error('Error loading users for supplement group seeding:', userErr);
+      return;
+    }
+
+    (users || []).forEach((user) => {
+      database.get('SELECT COUNT(*) AS count FROM supplements WHERE user_id = ? AND is_active = 1', [user.id], (supplementCountErr, supplementCountRow) => {
+        if (supplementCountErr) {
+          console.error(`Error checking active supplements for user ${user.id}:`, supplementCountErr);
+          return;
+        }
+
+        if (!supplementCountRow || Number(supplementCountRow.count) === 0) {
+          return;
+        }
+
+        database.get('SELECT COUNT(*) AS count FROM supplement_groups WHERE user_id = ?', [user.id], (countErr, countRow) => {
+        if (countErr) {
+          console.error(`Error checking supplement groups for user ${user.id}:`, countErr);
+          return;
+        }
+
+        if ((countRow && Number(countRow.count)) > 0) {
+          return;
+        }
+
+        DEFAULT_SUPPLEMENT_GROUP_DEFINITIONS.forEach((groupDefinition) => {
+          const groupId = uuidv4();
+
+          database.run(
+            `INSERT INTO supplement_groups (id, user_id, name, normalized_name, display_name, is_default)
+             VALUES (?, ?, ?, ?, ?, 1)`,
+            [groupId, user.id, groupDefinition.name, normalizeGroupKey(groupDefinition.name), groupDefinition.displayName],
+            (insertGroupErr) => {
+              if (insertGroupErr) {
+                console.error(`Error creating supplement group ${groupDefinition.name}:`, insertGroupErr);
+                return;
+              }
+
+              groupDefinition.supplementNames.forEach((supplementName, index) => {
+                database.get(
+                  `SELECT id
+                   FROM supplements
+                   WHERE user_id = ?
+                     AND is_active = 1
+                     AND lower(trim(name)) = lower(trim(?))
+                   ORDER BY created_at DESC
+                   LIMIT 1`,
+                  [user.id, supplementName],
+                  (supplementErr, supplementRow) => {
+                    if (supplementErr) {
+                      console.error(`Error resolving supplement ${supplementName} for group ${groupDefinition.name}:`, supplementErr);
+                      return;
+                    }
+
+                    if (!supplementRow) {
+                      return;
+                    }
+
+                    database.run(
+                      `INSERT INTO supplement_group_memberships (id, group_id, supplement_id, user_id, position)
+                       VALUES (?, ?, ?, ?, ?)`,
+                      [uuidv4(), groupId, supplementRow.id, user.id, index]
+                    );
+                  }
+                );
+              });
+            }
+          );
+        });
+        });
+      });
+    });
+  });
+}
 
 // Middleware
 app.use(cors());
@@ -156,6 +274,34 @@ db.serialize(() => {
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS supplement_groups (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    display_name TEXT,
+    is_default BOOLEAN DEFAULT 0,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS supplement_group_memberships (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    supplement_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    position INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (group_id) REFERENCES supplement_groups (id),
+    FOREIGN KEY (supplement_id) REFERENCES supplements (id),
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_supplement_groups_user_name ON supplement_groups(user_id, normalized_name)');
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_supplement_group_memberships_group_supplement ON supplement_group_memberships(group_id, supplement_id)');
+
   // Meals table
   db.run(`CREATE TABLE IF NOT EXISTS meals (
     id TEXT PRIMARY KEY,
@@ -236,6 +382,8 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
+
+  seedDefaultSupplementGroups(db);
 
   // Insert complete peptide library
   const defaultPeptides = [
@@ -382,18 +530,89 @@ db.serialize(() => {
       ['brand', 'TEXT'],
       ['dose_amount', 'REAL'],
       ['dose_unit', 'TEXT'],
-      ['servings_per_container', 'INTEGER']
+      ['servings_per_container', 'INTEGER'],
+      ['count_per_dose', 'REAL'],
+      ['count_unit', 'TEXT'],
+      ['strength_amount', 'REAL'],
+      ['strength_unit', 'TEXT'],
+      ['strength_basis', 'TEXT'],
+      ['total_dose_amount', 'REAL'],
+      ['total_dose_unit', 'TEXT']
     ];
 
-    requiredColumns.forEach(([columnName, columnType]) => {
-      if (columns.some((column) => column.name === columnName)) {
+    const missingColumns = requiredColumns.filter(([columnName]) => !columns.some((column) => column.name === columnName));
+    let pendingColumns = missingColumns.length;
+
+    const maybeBackfillSupplements = () => {
+      if (pendingColumns > 0) {
         return;
       }
 
+      db.all(
+        `SELECT id, name, dosage, dose_amount, dose_unit, notes, count_per_dose, count_unit, strength_amount, strength_unit, strength_basis, total_dose_amount, total_dose_unit
+         FROM supplements`,
+        (selectErr, supplementRows) => {
+          if (selectErr) {
+            console.error('Error loading supplements for schema backfill:', selectErr);
+            return;
+          }
+
+          supplementRows.forEach((row) => {
+            const inferred = inferSupplementSchemaFromLegacy(row);
+            const needsBackfill = (
+              row.count_per_dose === null ||
+              row.count_unit === null ||
+              row.strength_amount === null ||
+              row.total_dose_amount === null
+            );
+
+            if (!needsBackfill) {
+              return;
+            }
+
+            db.run(
+              `UPDATE supplements
+               SET count_per_dose = COALESCE(count_per_dose, ?),
+                   count_unit = COALESCE(NULLIF(count_unit, ''), ?),
+                   strength_amount = COALESCE(strength_amount, ?),
+                   strength_unit = COALESCE(NULLIF(strength_unit, ''), ?),
+                   strength_basis = COALESCE(NULLIF(strength_basis, ''), ?),
+                   total_dose_amount = COALESCE(total_dose_amount, ?),
+                   total_dose_unit = COALESCE(NULLIF(total_dose_unit, ''), ?)
+               WHERE id = ?`,
+              [
+                inferred.count_per_dose,
+                inferred.count_unit || null,
+                inferred.strength_amount,
+                inferred.strength_unit || null,
+                inferred.strength_basis || null,
+                inferred.total_dose_amount,
+                inferred.total_dose_unit || null,
+                row.id
+              ],
+              (updateErr) => {
+                if (updateErr) {
+                  console.error(`Error backfilling supplement schema for ${row.id}:`, updateErr);
+                }
+              }
+            );
+          });
+        }
+      );
+    };
+
+    if (missingColumns.length === 0) {
+      maybeBackfillSupplements();
+      return;
+    }
+
+    missingColumns.forEach(([columnName, columnType]) => {
       db.run(`ALTER TABLE supplements ADD COLUMN ${columnName} ${columnType}`, (alterErr) => {
         if (alterErr) {
           console.error(`Error adding ${columnName} to supplements:`, alterErr);
         }
+        pendingColumns -= 1;
+        maybeBackfillSupplements();
       });
     });
   });
@@ -466,6 +685,403 @@ function parseStoredSettings(settingsJson) {
     return normalizeAccountSettings(JSON.parse(settingsJson));
   } catch (error) {
     return { ...DEFAULT_ACCOUNT_SETTINGS };
+  }
+}
+
+function normalizeSupplementCountUnit(unit) {
+  const normalized = String(unit || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.endsWith('s') && PRACTICAL_COUNT_UNITS.has(normalized.slice(0, -1))) {
+    return normalized.slice(0, -1);
+  }
+
+  return normalized;
+}
+
+function formatCountUnit(count, unit) {
+  const normalizedUnit = normalizeSupplementCountUnit(unit);
+
+  if (!normalizedUnit) {
+    return '';
+  }
+
+  if (count === null || count === undefined || count === '') {
+    return normalizedUnit;
+  }
+
+  return Number(count) === 1 ? normalizedUnit : `${normalizedUnit}s`;
+}
+
+function formatNumberCompact(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return String(value);
+  }
+
+  return Number.isInteger(numeric) ? String(numeric) : String(Number(numeric.toFixed(2)));
+}
+
+function parseAmountUnitPair(text) {
+  const match = String(text || '').trim().match(/(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|iu|ml)\b/i);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    amount: Number(match[1]),
+    unit: match[2]
+  };
+}
+
+function inferSupplementSchemaFromLegacy(row = {}) {
+  const inferred = {
+    count_per_dose: null,
+    count_unit: '',
+    strength_amount: null,
+    strength_unit: '',
+    strength_basis: '',
+    total_dose_amount: null,
+    total_dose_unit: ''
+  };
+
+  const legacyAmount = row.dose_amount === null || row.dose_amount === undefined || row.dose_amount === ''
+    ? null
+    : Number(row.dose_amount);
+  const legacyUnit = String(row.dose_unit || '').trim().toLowerCase();
+  const dosageText = String(row.dosage || '').trim();
+  const noteText = String(row.notes || '').trim();
+  const nameText = String(row.name || '').trim();
+
+  const nameStrength = parseAmountUnitPair(nameText);
+  const dosageStrength = parseAmountUnitPair(dosageText);
+  const noteEachStrength = noteText.match(/(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|iu|ml)\s*(?:each|per\s+(tablet|capsule|softgel|ml|scoop|serving))/i);
+  const practicalCountFromDosage = dosageText.match(/(\d+(?:\.\d+)?)\s*(tablet|tablets|capsule|capsules|softgel|softgels|ml|scoop|scoops|drop|drops|serving|servings)\b/i);
+  const practicalCountFromNotes = noteText.match(/take\s+(\d+(?:\.\d+)?)\s*(tablet|tablets|capsule|capsules|softgel|softgels|ml|scoop|scoops|drop|drops|serving|servings)\b/i);
+  const noteDailyTotal = noteText.match(/(\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|iu|ml)\s+total/i);
+  const noteDailyDose = noteText.match(/daily dose:\s*(\d+(?:\.\d+)?)\s*(tablet|tablets|capsule|capsules|softgel|softgels|ml|scoop|scoops|drop|drops|serving|servings)\b/i);
+  const practicalUnitFromNotes = noteText.match(/\b(tablet|tablets|capsule|capsules|softgel|softgels|ml|scoop|scoops|drop|drops|serving|servings)\b/i)
+    || nameText.match(/\b(tablet|tablets|capsule|capsules|softgel|softgels|ml|scoop|scoops|drop|drops|serving|servings)\b/i);
+
+  if (legacyAmount !== null && PRACTICAL_COUNT_UNITS.has(legacyUnit)) {
+    inferred.count_per_dose = legacyAmount;
+    inferred.count_unit = normalizeSupplementCountUnit(legacyUnit);
+  }
+
+  if (practicalCountFromDosage && inferred.count_per_dose === null) {
+    inferred.count_per_dose = Number(practicalCountFromDosage[1]);
+    inferred.count_unit = normalizeSupplementCountUnit(practicalCountFromDosage[2]);
+  }
+
+  if (practicalCountFromNotes && inferred.count_per_dose === null) {
+    inferred.count_per_dose = Number(practicalCountFromNotes[1]);
+    inferred.count_unit = normalizeSupplementCountUnit(practicalCountFromNotes[2]);
+  }
+
+  if (noteDailyDose && inferred.count_per_dose === null) {
+    inferred.count_per_dose = Number(noteDailyDose[1]);
+    inferred.count_unit = normalizeSupplementCountUnit(noteDailyDose[2]);
+  }
+
+  if (inferred.count_per_dose === null && practicalUnitFromNotes) {
+    inferred.count_per_dose = 1;
+    inferred.count_unit = normalizeSupplementCountUnit(practicalUnitFromNotes[1]);
+  }
+
+  if (legacyAmount !== null && STRENGTH_UNITS.has(legacyUnit)) {
+    inferred.strength_amount = legacyAmount;
+    inferred.strength_unit = legacyUnit;
+  }
+
+  if (!inferred.strength_amount && noteEachStrength) {
+    inferred.strength_amount = Number(noteEachStrength[1]);
+    inferred.strength_unit = noteEachStrength[2];
+    inferred.strength_basis = noteEachStrength[3] ? `per ${normalizeSupplementCountUnit(noteEachStrength[3])}` : '';
+  }
+
+  if (!inferred.strength_amount && inferred.count_per_dose !== null && dosageStrength) {
+    inferred.strength_amount = dosageStrength.amount;
+    inferred.strength_unit = dosageStrength.unit;
+  }
+
+  if (!inferred.strength_amount && inferred.count_per_dose !== null && nameStrength) {
+    inferred.strength_amount = nameStrength.amount;
+    inferred.strength_unit = nameStrength.unit;
+  }
+
+  if (inferred.strength_amount && !inferred.strength_basis && inferred.count_unit) {
+    inferred.strength_basis = `per ${inferred.count_unit}`;
+  } else if (inferred.strength_amount && !inferred.strength_basis) {
+    inferred.strength_basis = 'per serving';
+  }
+
+  if (inferred.count_per_dose === null && inferred.strength_amount) {
+    inferred.count_per_dose = 1;
+    inferred.count_unit = inferred.count_unit || 'serving';
+  }
+
+  if (noteDailyTotal) {
+    inferred.total_dose_amount = Number(noteDailyTotal[1]);
+    inferred.total_dose_unit = noteDailyTotal[2];
+  } else if (dosageStrength && inferred.count_per_dose !== null && (!inferred.strength_amount || inferred.count_per_dose > 1)) {
+    inferred.total_dose_amount = dosageStrength.amount;
+    inferred.total_dose_unit = dosageStrength.unit;
+  } else if (inferred.strength_amount && inferred.count_per_dose !== null) {
+    inferred.total_dose_amount = Number((inferred.strength_amount * inferred.count_per_dose).toFixed(2));
+    inferred.total_dose_unit = inferred.strength_unit;
+  } else if (legacyAmount !== null && STRENGTH_UNITS.has(legacyUnit)) {
+    inferred.total_dose_amount = legacyAmount;
+    inferred.total_dose_unit = legacyUnit;
+  } else if (nameStrength && inferred.count_per_dose !== null && inferred.count_per_dose === 1) {
+    inferred.total_dose_amount = nameStrength.amount;
+    inferred.total_dose_unit = nameStrength.unit;
+  }
+
+  if (!inferred.total_dose_amount && nameStrength && inferred.count_per_dose === null) {
+    inferred.total_dose_amount = nameStrength.amount;
+    inferred.total_dose_unit = nameStrength.unit;
+  }
+
+  return inferred;
+}
+
+function buildLegacySupplementFields(data = {}) {
+  const countPerDose = data.count_per_dose === null || data.count_per_dose === undefined || data.count_per_dose === ''
+    ? null
+    : Number(data.count_per_dose);
+  const countUnit = normalizeSupplementCountUnit(data.count_unit);
+  const strengthAmount = data.strength_amount === null || data.strength_amount === undefined || data.strength_amount === ''
+    ? null
+    : Number(data.strength_amount);
+  const strengthUnit = String(data.strength_unit || '').trim();
+  const totalDoseAmount = data.total_dose_amount === null || data.total_dose_amount === undefined || data.total_dose_amount === ''
+    ? null
+    : Number(data.total_dose_amount);
+  const totalDoseUnit = String(data.total_dose_unit || '').trim();
+  const dosage = data.dosage || (
+    totalDoseAmount !== null && totalDoseUnit
+      ? `${formatNumberCompact(totalDoseAmount)} ${totalDoseUnit}`
+      : strengthAmount !== null && strengthUnit
+        ? `${formatNumberCompact(strengthAmount)} ${strengthUnit}`
+        : countPerDose !== null && countUnit
+          ? `${formatNumberCompact(countPerDose)} ${formatCountUnit(countPerDose, countUnit)}`
+          : ''
+  );
+
+  let legacyDoseAmount = data.dose_amount;
+  let legacyDoseUnit = data.dose_unit;
+
+  if (countPerDose !== null && countUnit) {
+    legacyDoseAmount = countPerDose;
+    legacyDoseUnit = formatCountUnit(countPerDose, countUnit);
+  } else if (strengthAmount !== null && strengthUnit) {
+    legacyDoseAmount = strengthAmount;
+    legacyDoseUnit = strengthUnit;
+  } else if (totalDoseAmount !== null && totalDoseUnit) {
+    legacyDoseAmount = totalDoseAmount;
+    legacyDoseUnit = totalDoseUnit;
+  }
+
+  return {
+    dosage,
+    dose_amount: legacyDoseAmount === null || legacyDoseAmount === undefined || legacyDoseAmount === '' ? null : Number(legacyDoseAmount),
+    dose_unit: String(legacyDoseUnit || '').trim()
+  };
+}
+
+function normalizeSupplementRecord(row) {
+  if (!row) {
+    return null;
+  }
+
+  const inferred = inferSupplementSchemaFromLegacy(row);
+  const countPerDose = row.count_per_dose === null || row.count_per_dose === undefined || row.count_per_dose === ''
+    ? inferred.count_per_dose
+    : Number(row.count_per_dose);
+  const countUnit = normalizeSupplementCountUnit(row.count_unit || inferred.count_unit);
+  const strengthAmount = row.strength_amount === null || row.strength_amount === undefined || row.strength_amount === ''
+    ? inferred.strength_amount
+    : Number(row.strength_amount);
+  const strengthUnit = String(row.strength_unit || inferred.strength_unit || '').trim();
+  const strengthBasis = String(row.strength_basis || inferred.strength_basis || '').trim();
+  const totalDoseAmount = row.total_dose_amount === null || row.total_dose_amount === undefined || row.total_dose_amount === ''
+    ? inferred.total_dose_amount
+    : Number(row.total_dose_amount);
+  const totalDoseUnit = String(row.total_dose_unit || inferred.total_dose_unit || '').trim();
+  const legacy = buildLegacySupplementFields({
+    ...row,
+    count_per_dose: countPerDose,
+    count_unit: countUnit,
+    strength_amount: strengthAmount,
+    strength_unit: strengthUnit,
+    total_dose_amount: totalDoseAmount,
+    total_dose_unit: totalDoseUnit
+  });
+
+  return {
+    ...row,
+    dosage: legacy.dosage,
+    dose_amount: legacy.dose_amount,
+    dose_unit: legacy.dose_unit,
+    count_per_dose: countPerDose,
+    count_unit: countUnit || null,
+    strength_amount: strengthAmount,
+    strength_unit: strengthUnit || null,
+    strength_basis: strengthBasis || null,
+    total_dose_amount: totalDoseAmount,
+    total_dose_unit: totalDoseUnit || null,
+    practical_dose: {
+      count_per_dose: countPerDose,
+      count_unit: countUnit || null,
+      frequency: row.frequency || null,
+      time_of_day: row.time_of_day || null
+    },
+    strength: {
+      amount: strengthAmount,
+      unit: strengthUnit || null,
+      basis: strengthBasis || null
+    },
+    total_dose: {
+      amount: totalDoseAmount,
+      unit: totalDoseUnit || null
+    }
+  };
+}
+
+function dbGetAsync(database, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    database.get(sql, params, (err, row) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(row);
+    });
+  });
+}
+
+function dbAllAsync(database, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    database.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(rows);
+    });
+  });
+}
+
+function dbRunAsync(database, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    database.run(sql, params, function onRun(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve({ changes: this.changes, lastID: this.lastID });
+    });
+  });
+}
+
+async function getApiSupplementGroupByName(userId, groupName) {
+  return dbGetAsync(
+    db,
+    `SELECT *
+     FROM supplement_groups
+     WHERE user_id = ?
+       AND normalized_name = ?
+       AND is_active = 1`,
+    [userId, normalizeGroupKey(groupName)]
+  );
+}
+
+async function getApiSupplementGroupMembers(userId, groupId) {
+  return dbAllAsync(
+    db,
+    `SELECT s.*, m.position
+     FROM supplement_group_memberships m
+     JOIN supplements s ON s.id = m.supplement_id
+     WHERE m.user_id = ?
+       AND m.group_id = ?
+       AND s.is_active = 1
+     ORDER BY m.position ASC, lower(s.name) ASC`,
+    [userId, groupId]
+  );
+}
+
+async function validateApiGroupSupplementIds(userId, supplementIds) {
+  const normalizedIds = Array.isArray(supplementIds)
+    ? supplementIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const duplicates = normalizedIds.filter((value, index) => normalizedIds.indexOf(value) !== index);
+
+  if (duplicates.length > 0) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          error: 'Duplicate supplement_ids provided',
+          duplicate_ids: [...new Set(duplicates)]
+        }
+      }
+    };
+  }
+
+  const invalidIds = [];
+  const inactiveIds = [];
+
+  for (const supplementId of normalizedIds) {
+    const supplement = await dbGetAsync(
+      db,
+      'SELECT id, is_active FROM supplements WHERE id = ? AND user_id = ?',
+      [supplementId, userId]
+    );
+
+    if (!supplement) {
+      invalidIds.push(supplementId);
+      continue;
+    }
+
+    if (!Boolean(Number(supplement.is_active))) {
+      inactiveIds.push(supplementId);
+    }
+  }
+
+  if (invalidIds.length > 0 || inactiveIds.length > 0) {
+    return {
+      error: {
+        status: 400,
+        body: {
+          error: 'One or more supplement_ids are invalid for this user',
+          invalid_ids: invalidIds,
+          inactive_ids: inactiveIds
+        }
+      }
+    };
+  }
+
+  return { supplementIds: normalizedIds };
+}
+
+async function replaceApiGroupMemberships(userId, groupId, supplementIds) {
+  await dbRunAsync(db, 'DELETE FROM supplement_group_memberships WHERE user_id = ? AND group_id = ?', [userId, groupId]);
+
+  for (let index = 0; index < supplementIds.length; index += 1) {
+    await dbRunAsync(
+      db,
+      `INSERT INTO supplement_group_memberships (id, group_id, supplement_id, user_id, position)
+       VALUES (?, ?, ?, ?, ?)`,
+      [uuidv4(), groupId, supplementIds[index], userId, index]
+    );
   }
 }
 
@@ -831,6 +1447,8 @@ app.delete('/auth/me', authenticateToken, (req, res) => {
         ['DELETE FROM food_logs WHERE user_id = ?', [req.user.userId]],
         ['DELETE FROM blood_results WHERE user_id = ?', [req.user.userId]],
         ['DELETE FROM meals WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM supplement_group_memberships WHERE user_id = ?', [req.user.userId]],
+        ['DELETE FROM supplement_groups WHERE user_id = ?', [req.user.userId]],
         ['DELETE FROM supplement_logs WHERE user_id = ?', [req.user.userId]],
         ['DELETE FROM supplements WHERE user_id = ?', [req.user.userId]],
         ['DELETE FROM vitals WHERE user_id = ?', [req.user.userId]],
@@ -1756,9 +2374,199 @@ app.get('/supplements', authenticateToken, (req, res) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to fetch supplements' });
       }
-      res.json(rows);
+      res.json(rows.map(normalizeSupplementRecord));
     }
   );
+});
+
+// GET /supplement-groups - List user's supplement groups
+app.get('/supplement-groups', authenticateToken, (req, res) => {
+  db.all(
+    `SELECT g.*, COUNT(m.id) AS supplement_count
+     FROM supplement_groups g
+     LEFT JOIN supplement_group_memberships m ON m.group_id = g.id
+     WHERE g.user_id = ? AND g.is_active = 1
+     GROUP BY g.id
+     ORDER BY lower(coalesce(g.display_name, g.name)) ASC, datetime(g.created_at) ASC`,
+    [req.user.userId],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to fetch supplement groups' });
+      }
+
+      res.json(rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        display_name: row.display_name || row.name,
+        is_default: Boolean(Number(row.is_default)),
+        is_active: Boolean(Number(row.is_active)),
+        supplement_count: Number(row.supplement_count || 0)
+      })));
+    }
+  );
+});
+
+// GET /supplement-groups/:groupName - Get one group with member supplements
+app.get('/supplement-groups/:groupName', authenticateToken, (req, res) => {
+  db.get(
+    `SELECT *
+     FROM supplement_groups
+     WHERE user_id = ? AND normalized_name = ? AND is_active = 1`,
+    [req.user.userId, normalizeGroupKey(req.params.groupName)],
+    (groupErr, groupRow) => {
+      if (groupErr) {
+        return res.status(500).json({ error: 'Failed to fetch supplement group' });
+      }
+
+      if (!groupRow) {
+        return res.status(404).json({ error: 'Supplement group not found' });
+      }
+
+      db.all(
+        `SELECT s.*, m.position
+         FROM supplement_group_memberships m
+         JOIN supplements s ON s.id = m.supplement_id
+         WHERE m.group_id = ? AND m.user_id = ? AND s.is_active = 1
+         ORDER BY m.position ASC, lower(s.name) ASC`,
+        [groupRow.id, req.user.userId],
+        (memberErr, supplementRows) => {
+          if (memberErr) {
+            return res.status(500).json({ error: 'Failed to fetch supplement group members' });
+          }
+
+          res.json({
+            id: groupRow.id,
+            name: groupRow.name,
+            display_name: groupRow.display_name || groupRow.name,
+            is_default: Boolean(Number(groupRow.is_default)),
+            is_active: Boolean(Number(groupRow.is_active)),
+            supplements: supplementRows.map(normalizeSupplementRecord)
+          });
+        }
+      );
+    }
+  );
+});
+
+// POST /supplement-groups - Create a supplement group
+app.post('/supplement-groups', authenticateToken, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const displayName = String(req.body?.display_name || name).trim();
+
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const existingGroup = await getApiSupplementGroupByName(req.user.userId, name);
+    if (existingGroup) {
+      return res.status(409).json({ error: 'Supplement group already exists' });
+    }
+
+    const validated = await validateApiGroupSupplementIds(req.user.userId, req.body?.supplement_ids);
+    if (validated.error) {
+      return res.status(validated.error.status).json(validated.error.body);
+    }
+
+    const groupId = uuidv4();
+    await dbRunAsync(
+      db,
+      `INSERT INTO supplement_groups (id, user_id, name, normalized_name, display_name, is_default, is_active, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, 1, CURRENT_TIMESTAMP)`,
+      [groupId, req.user.userId, name, normalizeGroupKey(name), displayName]
+    );
+    await replaceApiGroupMemberships(req.user.userId, groupId, validated.supplementIds);
+
+    const createdGroup = await getApiSupplementGroupByName(req.user.userId, name);
+    const supplements = await getApiSupplementGroupMembers(req.user.userId, groupId);
+    return res.status(201).json({
+      id: createdGroup.id,
+      name: createdGroup.name,
+      display_name: createdGroup.display_name || createdGroup.name,
+      is_default: Boolean(Number(createdGroup.is_default)),
+      is_active: Boolean(Number(createdGroup.is_active)),
+      supplements: supplements.map(normalizeSupplementRecord)
+    });
+  } catch (error) {
+    console.error('Failed to create supplement group:', error);
+    return res.status(500).json({ error: 'Failed to create supplement group' });
+  }
+});
+
+// PUT /supplement-groups/:groupName - Update a supplement group
+app.put('/supplement-groups/:groupName', authenticateToken, async (req, res) => {
+  try {
+    const currentGroup = await getApiSupplementGroupByName(req.user.userId, req.params.groupName);
+    if (!currentGroup) {
+      return res.status(404).json({ error: 'Supplement group not found' });
+    }
+
+    const nextName = String(req.body?.name || currentGroup.name).trim();
+    const nextDisplayName = Object.prototype.hasOwnProperty.call(req.body || {}, 'display_name')
+      ? String(req.body.display_name || nextName).trim()
+      : String(currentGroup.display_name || currentGroup.name).trim();
+
+    if (!nextName) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    if (normalizeGroupKey(nextName) !== normalizeGroupKey(currentGroup.name)) {
+      const conflictingGroup = await getApiSupplementGroupByName(req.user.userId, nextName);
+      if (conflictingGroup && conflictingGroup.id !== currentGroup.id) {
+        return res.status(409).json({ error: 'Supplement group already exists' });
+      }
+    }
+
+    const currentMembers = await getApiSupplementGroupMembers(req.user.userId, currentGroup.id);
+    const nextSupplementIds = Object.prototype.hasOwnProperty.call(req.body || {}, 'supplement_ids')
+      ? req.body.supplement_ids
+      : currentMembers.map((item) => item.id);
+    const validated = await validateApiGroupSupplementIds(req.user.userId, nextSupplementIds);
+    if (validated.error) {
+      return res.status(validated.error.status).json(validated.error.body);
+    }
+
+    await dbRunAsync(
+      db,
+      `UPDATE supplement_groups
+       SET name = ?, normalized_name = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND user_id = ?`,
+      [nextName, normalizeGroupKey(nextName), nextDisplayName, currentGroup.id, req.user.userId]
+    );
+    await replaceApiGroupMemberships(req.user.userId, currentGroup.id, validated.supplementIds);
+
+    const updatedGroup = await getApiSupplementGroupByName(req.user.userId, nextName);
+    const supplements = await getApiSupplementGroupMembers(req.user.userId, currentGroup.id);
+    return res.json({
+      id: updatedGroup.id,
+      name: updatedGroup.name,
+      display_name: updatedGroup.display_name || updatedGroup.name,
+      is_default: Boolean(Number(updatedGroup.is_default)),
+      is_active: Boolean(Number(updatedGroup.is_active)),
+      supplements: supplements.map(normalizeSupplementRecord)
+    });
+  } catch (error) {
+    console.error('Failed to update supplement group:', error);
+    return res.status(500).json({ error: 'Failed to update supplement group' });
+  }
+});
+
+// DELETE /supplement-groups/:groupName - Delete a supplement group
+app.delete('/supplement-groups/:groupName', authenticateToken, async (req, res) => {
+  try {
+    const group = await getApiSupplementGroupByName(req.user.userId, req.params.groupName);
+    if (!group) {
+      return res.status(404).json({ error: 'Supplement group not found' });
+    }
+
+    await dbRunAsync(db, 'DELETE FROM supplement_group_memberships WHERE user_id = ? AND group_id = ?', [req.user.userId, group.id]);
+    await dbRunAsync(db, 'DELETE FROM supplement_groups WHERE user_id = ? AND id = ?', [req.user.userId, group.id]);
+
+    return res.json({ message: 'Supplement group deleted successfully', id: group.id, name: group.name });
+  } catch (error) {
+    console.error('Failed to delete supplement group:', error);
+    return res.status(500).json({ error: 'Failed to delete supplement group' });
+  }
 });
 
 // POST /supplements - Create a new supplement
@@ -1769,6 +2577,13 @@ app.post('/supplements', authenticateToken, (req, res) => {
     dosage,
     dose_amount,
     dose_unit,
+    count_per_dose,
+    count_unit,
+    strength_amount,
+    strength_unit,
+    strength_basis,
+    total_dose_amount,
+    total_dose_unit,
     servings_per_container,
     frequency,
     time_of_day,
@@ -1780,26 +2595,53 @@ app.post('/supplements', authenticateToken, (req, res) => {
   }
 
   const id = uuidv4();
-  const normalizedDoseAmount = dose_amount === null || dose_amount === undefined || dose_amount === ''
+  const normalizedCountPerDose = count_per_dose === null || count_per_dose === undefined || count_per_dose === ''
     ? null
-    : Number(dose_amount);
+    : Number(count_per_dose);
+  const normalizedCountUnit = count_unit ? normalizeSupplementCountUnit(count_unit) : '';
+  const normalizedStrengthAmount = strength_amount === null || strength_amount === undefined || strength_amount === ''
+    ? null
+    : Number(strength_amount);
+  const normalizedStrengthUnit = strength_unit ? String(strength_unit).trim() : '';
+  const normalizedStrengthBasis = strength_basis ? String(strength_basis).trim() : '';
+  const normalizedTotalDoseAmount = total_dose_amount === null || total_dose_amount === undefined || total_dose_amount === ''
+    ? null
+    : Number(total_dose_amount);
+  const normalizedTotalDoseUnit = total_dose_unit ? String(total_dose_unit).trim() : '';
   const normalizedServings = servings_per_container === null || servings_per_container === undefined || servings_per_container === ''
     ? null
     : parseInt(servings_per_container, 10);
-  const dosageText = dosage || (normalizedDoseAmount !== null && dose_unit ? `${normalizedDoseAmount} ${dose_unit}` : '');
+  const legacySupplementFields = buildLegacySupplementFields({
+    dosage,
+    dose_amount,
+    dose_unit,
+    count_per_dose: normalizedCountPerDose,
+    count_unit: normalizedCountUnit,
+    strength_amount: normalizedStrengthAmount,
+    strength_unit: normalizedStrengthUnit,
+    total_dose_amount: normalizedTotalDoseAmount,
+    total_dose_unit: normalizedTotalDoseUnit
+  });
 
   db.run(
     `INSERT INTO supplements
-     (id, user_id, name, brand, dosage, dose_amount, dose_unit, servings_per_container, frequency, time_of_day, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, user_id, name, brand, dosage, dose_amount, dose_unit, count_per_dose, count_unit, strength_amount, strength_unit, strength_basis, total_dose_amount, total_dose_unit, servings_per_container, frequency, time_of_day, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       req.user.userId,
       name,
       brand || '',
-      dosageText,
-      Number.isFinite(normalizedDoseAmount) ? normalizedDoseAmount : null,
-      dose_unit || '',
+      legacySupplementFields.dosage || '',
+      Number.isFinite(legacySupplementFields.dose_amount) ? legacySupplementFields.dose_amount : null,
+      legacySupplementFields.dose_unit || '',
+      Number.isFinite(normalizedCountPerDose) ? normalizedCountPerDose : null,
+      normalizedCountUnit || '',
+      Number.isFinite(normalizedStrengthAmount) ? normalizedStrengthAmount : null,
+      normalizedStrengthUnit || '',
+      normalizedStrengthBasis || '',
+      Number.isFinite(normalizedTotalDoseAmount) ? normalizedTotalDoseAmount : null,
+      normalizedTotalDoseUnit || '',
       Number.isFinite(normalizedServings) ? normalizedServings : null,
       frequency || '',
       time_of_day || '',
@@ -1809,7 +2651,12 @@ app.post('/supplements', authenticateToken, (req, res) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to create supplement' });
       }
-      res.status(201).json({ id, message: 'Supplement created successfully' });
+      db.get('SELECT * FROM supplements WHERE id = ? AND user_id = ?', [id, req.user.userId], (fetchErr, row) => {
+        if (fetchErr || !row) {
+          return res.status(201).json({ id, message: 'Supplement created successfully' });
+        }
+        res.status(201).json(normalizeSupplementRecord(row));
+      });
     }
   );
 });
@@ -1822,6 +2669,13 @@ app.put('/supplements/:id', authenticateToken, (req, res) => {
     dosage,
     dose_amount,
     dose_unit,
+    count_per_dose,
+    count_unit,
+    strength_amount,
+    strength_unit,
+    strength_basis,
+    total_dose_amount,
+    total_dose_unit,
     servings_per_container,
     frequency,
     time_of_day,
@@ -1833,24 +2687,51 @@ app.put('/supplements/:id', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Supplement name is required' });
   }
 
-  const normalizedDoseAmount = dose_amount === null || dose_amount === undefined || dose_amount === ''
+  const normalizedCountPerDose = count_per_dose === null || count_per_dose === undefined || count_per_dose === ''
     ? null
-    : Number(dose_amount);
+    : Number(count_per_dose);
+  const normalizedCountUnit = count_unit ? normalizeSupplementCountUnit(count_unit) : '';
+  const normalizedStrengthAmount = strength_amount === null || strength_amount === undefined || strength_amount === ''
+    ? null
+    : Number(strength_amount);
+  const normalizedStrengthUnit = strength_unit ? String(strength_unit).trim() : '';
+  const normalizedStrengthBasis = strength_basis ? String(strength_basis).trim() : '';
+  const normalizedTotalDoseAmount = total_dose_amount === null || total_dose_amount === undefined || total_dose_amount === ''
+    ? null
+    : Number(total_dose_amount);
+  const normalizedTotalDoseUnit = total_dose_unit ? String(total_dose_unit).trim() : '';
   const normalizedServings = servings_per_container === null || servings_per_container === undefined || servings_per_container === ''
     ? null
     : parseInt(servings_per_container, 10);
-  const dosageText = dosage || (normalizedDoseAmount !== null && dose_unit ? `${normalizedDoseAmount} ${dose_unit}` : '');
+  const legacySupplementFields = buildLegacySupplementFields({
+    dosage,
+    dose_amount,
+    dose_unit,
+    count_per_dose: normalizedCountPerDose,
+    count_unit: normalizedCountUnit,
+    strength_amount: normalizedStrengthAmount,
+    strength_unit: normalizedStrengthUnit,
+    total_dose_amount: normalizedTotalDoseAmount,
+    total_dose_unit: normalizedTotalDoseUnit
+  });
 
   db.run(
     `UPDATE supplements
-     SET name = ?, brand = ?, dosage = ?, dose_amount = ?, dose_unit = ?, servings_per_container = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ?
+     SET name = ?, brand = ?, dosage = ?, dose_amount = ?, dose_unit = ?, count_per_dose = ?, count_unit = ?, strength_amount = ?, strength_unit = ?, strength_basis = ?, total_dose_amount = ?, total_dose_unit = ?, servings_per_container = ?, frequency = ?, time_of_day = ?, notes = ?, is_active = ?
      WHERE id = ? AND user_id = ?`,
     [
       name,
       brand || '',
-      dosageText,
-      Number.isFinite(normalizedDoseAmount) ? normalizedDoseAmount : null,
-      dose_unit || '',
+      legacySupplementFields.dosage || '',
+      Number.isFinite(legacySupplementFields.dose_amount) ? legacySupplementFields.dose_amount : null,
+      legacySupplementFields.dose_unit || '',
+      Number.isFinite(normalizedCountPerDose) ? normalizedCountPerDose : null,
+      normalizedCountUnit || '',
+      Number.isFinite(normalizedStrengthAmount) ? normalizedStrengthAmount : null,
+      normalizedStrengthUnit || '',
+      normalizedStrengthBasis || '',
+      Number.isFinite(normalizedTotalDoseAmount) ? normalizedTotalDoseAmount : null,
+      normalizedTotalDoseUnit || '',
       Number.isFinite(normalizedServings) ? normalizedServings : null,
       frequency || '',
       time_of_day || '',
@@ -1866,7 +2747,12 @@ app.put('/supplements/:id', authenticateToken, (req, res) => {
       if (this.changes === 0) {
         return res.status(404).json({ error: 'Supplement not found' });
       }
-      res.json({ message: 'Supplement updated successfully' });
+      db.get('SELECT * FROM supplements WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId], (fetchErr, row) => {
+        if (fetchErr || !row) {
+          return res.json({ message: 'Supplement updated successfully' });
+        }
+        res.json(normalizeSupplementRecord(row));
+      });
     }
   );
 });
@@ -1874,16 +2760,26 @@ app.put('/supplements/:id', authenticateToken, (req, res) => {
 // DELETE /supplements/:id - Delete a supplement
 app.delete('/supplements/:id', authenticateToken, (req, res) => {
   db.run(
-    'DELETE FROM supplements WHERE id = ? AND user_id = ?',
+    'DELETE FROM supplement_group_memberships WHERE supplement_id = ? AND user_id = ?',
     [req.params.id, req.user.userId],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to delete supplement' });
+    (membershipErr) => {
+      if (membershipErr) {
+        return res.status(500).json({ error: 'Failed to clean supplement group memberships' });
       }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Supplement not found' });
-      }
-      res.json({ message: 'Supplement deleted successfully' });
+
+      db.run(
+        'DELETE FROM supplements WHERE id = ? AND user_id = ?',
+        [req.params.id, req.user.userId],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: 'Failed to delete supplement' });
+          }
+          if (this.changes === 0) {
+            return res.status(404).json({ error: 'Supplement not found' });
+          }
+          res.json({ message: 'Supplement deleted successfully' });
+        }
+      );
     }
   );
 });
@@ -1913,7 +2809,7 @@ app.get('/supplements/:id/logs', authenticateToken, (req, res) => {
   const { limit = 50, offset = 0 } = req.query;
 
   db.all(
-    `SELECT l.*, s.dose_amount, s.dose_unit
+    `SELECT l.*, s.dose_amount, s.dose_unit, s.count_per_dose, s.count_unit, s.strength_amount, s.strength_unit, s.strength_basis, s.total_dose_amount, s.total_dose_unit
      FROM supplement_logs l
      JOIN supplements s ON s.id = l.supplement_id
      WHERE l.supplement_id = ? AND l.user_id = ?
@@ -1924,7 +2820,10 @@ app.get('/supplements/:id/logs', authenticateToken, (req, res) => {
       if (err) {
         return res.status(500).json({ error: 'Failed to fetch supplement logs' });
       }
-      res.json(rows);
+      res.json(rows.map((row) => ({
+        ...row,
+        supplement: normalizeSupplementRecord(row)
+      })));
     }
   );
 });

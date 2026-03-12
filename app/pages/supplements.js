@@ -95,6 +95,47 @@ function formatTimeOfDayLabel(timeOfDay) {
   return formatPart(primary)
 }
 
+function getPracticalDoseFields(supplement) {
+  const countPerDose = supplement?.count_per_dose ?? supplement?.practical_dose?.count_per_dose ?? supplement?.dose_amount ?? null
+  const countUnit = supplement?.count_unit ?? supplement?.practical_dose?.count_unit ?? supplement?.dose_unit ?? null
+  return { countPerDose, countUnit }
+}
+
+function getStrengthFields(supplement) {
+  return {
+    amount: supplement?.strength_amount ?? supplement?.strength?.amount ?? supplement?.dose_amount ?? null,
+    unit: supplement?.strength_unit ?? supplement?.strength?.unit ?? supplement?.dose_unit ?? null,
+    basis: supplement?.strength_basis ?? supplement?.strength?.basis ?? null
+  }
+}
+
+function getTotalDoseFields(supplement) {
+  return {
+    amount: supplement?.total_dose_amount ?? supplement?.total_dose?.amount ?? supplement?.dose_amount ?? null,
+    unit: supplement?.total_dose_unit ?? supplement?.total_dose?.unit ?? supplement?.dose_unit ?? null
+  }
+}
+
+function formatPracticalDose(supplement) {
+  const { countPerDose, countUnit } = getPracticalDoseFields(supplement)
+  if (!countPerDose || !countUnit) return 'Dose not set'
+  const singular = String(countUnit).trim().toLowerCase().replace(/s$/, '')
+  const label = Number(countPerDose) === 1 ? singular : `${singular}s`
+  return `${countPerDose} ${label}`
+}
+
+function formatStrength(supplement) {
+  const { amount, unit, basis } = getStrengthFields(supplement)
+  if (!amount || !unit) return ''
+  return `${amount} ${unit}${basis ? ` ${basis}` : ''}`
+}
+
+function formatTotalDose(supplement) {
+  const { amount, unit } = getTotalDoseFields(supplement)
+  if (!amount || !unit) return ''
+  return `${amount} ${unit}`
+}
+
 export default function SupplementsPage() {
   const supplementScanRequestIdRef = useRef(0)
   const [supplementsList, setSupplementsList] = useState([])
@@ -121,8 +162,13 @@ export default function SupplementsPage() {
   const [formData, setFormData] = useState({
     name: '',
     brand: '',
-    dose_amount: '',
-    dose_unit: 'capsules',
+    count_per_dose: '',
+    count_unit: 'capsule',
+    strength_amount: '',
+    strength_unit: 'mg',
+    strength_basis: 'per capsule',
+    total_dose_amount: '',
+    total_dose_unit: 'mg',
     servings_per_container: '',
     remaining_servings: '',
     frequency: 'daily',
@@ -345,8 +391,8 @@ export default function SupplementsPage() {
   const handleLogDose = async (supplement) => {
     try {
       const doseData = {
-        dose_amount: supplement.dose_amount || 1,
-        dose_unit: supplement.dose_unit || 'capsule',
+        dose_amount: supplement.count_per_dose || supplement.dose_amount || 1,
+        dose_unit: supplement.count_unit || supplement.dose_unit || 'capsule',
         taken_at: new Date().toISOString()
       }
       
@@ -412,9 +458,13 @@ export default function SupplementsPage() {
     const supplementData = {
       name: formData.name,
       brand: formData.brand,
-      dosage: formData.dose_amount ? `${formData.dose_amount} ${formData.dose_unit}` : '',
-      dose_amount: parseFloat(formData.dose_amount) || 1,
-      dose_unit: formData.dose_unit,
+      count_per_dose: formData.count_per_dose ? parseFloat(formData.count_per_dose) : null,
+      count_unit: formData.count_unit,
+      strength_amount: formData.strength_amount ? parseFloat(formData.strength_amount) : null,
+      strength_unit: formData.strength_unit,
+      strength_basis: formData.strength_basis,
+      total_dose_amount: formData.total_dose_amount ? parseFloat(formData.total_dose_amount) : null,
+      total_dose_unit: formData.total_dose_unit,
       servings_per_container: parseInt(formData.servings_per_container, 10) || null,
       frequency: formData.frequency,
       time_of_day: buildTimeOfDayValue(formData.frequency, formData.time_of_day, formData.second_time_of_day),
@@ -469,8 +519,13 @@ export default function SupplementsPage() {
       setFormData({
         name: '',
         brand: '',
-        dose_amount: '',
-        dose_unit: 'capsules',
+        count_per_dose: '',
+        count_unit: 'capsule',
+        strength_amount: '',
+        strength_unit: 'mg',
+        strength_basis: 'per capsule',
+        total_dose_amount: '',
+        total_dose_unit: 'mg',
         servings_per_container: '',
         remaining_servings: '',
         frequency: 'daily',
@@ -526,8 +581,13 @@ export default function SupplementsPage() {
     setFormData({
       name: supplement.name || '',
       brand: supplement.brand || '',
-      dose_amount: supplement.dose_amount || '',
-      dose_unit: supplement.dose_unit || 'capsules',
+      count_per_dose: supplement.count_per_dose || '',
+      count_unit: supplement.count_unit || 'capsule',
+      strength_amount: supplement.strength_amount || '',
+      strength_unit: supplement.strength_unit || 'mg',
+      strength_basis: supplement.strength_basis || `per ${supplement.count_unit || 'capsule'}`,
+      total_dose_amount: supplement.total_dose_amount || '',
+      total_dose_unit: supplement.total_dose_unit || supplement.strength_unit || 'mg',
       servings_per_container: inv.servingsPerContainer || '',
       remaining_servings: inv.remainingServings || '',
       frequency: supplement.frequency || 'daily',
@@ -558,8 +618,13 @@ export default function SupplementsPage() {
     setFormData({
       name: '',
       brand: '',
-      dose_amount: '',
-      dose_unit: 'capsules',
+      count_per_dose: '',
+      count_unit: 'capsule',
+      strength_amount: '',
+      strength_unit: 'mg',
+      strength_basis: 'per capsule',
+      total_dose_amount: '',
+      total_dose_unit: 'mg',
       servings_per_container: '',
       remaining_servings: '',
       frequency: 'daily',
@@ -579,8 +644,8 @@ export default function SupplementsPage() {
       ...current,
       name: result?.name || current.name,
       brand: result?.brand || current.brand,
-      dose_amount: result?.dose_amount ?? current.dose_amount,
-      dose_unit: result?.dose_unit || current.dose_unit,
+      count_per_dose: result?.dose_amount ?? current.count_per_dose,
+      count_unit: result?.dose_unit ? String(result.dose_unit).toLowerCase().replace(/s$/, '') : current.count_unit,
       servings_per_container: result?.servings_per_container ?? current.servings_per_container,
       notes: noteParts.length > 0 ? noteParts.join('\n') : current.notes
     }))
@@ -635,8 +700,8 @@ export default function SupplementsPage() {
         ...current,
         name: result?.name || current.name,
         brand: result?.brand || current.brand,
-        dose_amount: result?.dose_amount ?? current.dose_amount,
-        dose_unit: result?.dose_unit || current.dose_unit,
+        count_per_dose: result?.dose_amount ?? current.count_per_dose,
+        count_unit: result?.dose_unit ? String(result.dose_unit).toLowerCase().replace(/s$/, '') : current.count_unit,
         servings_per_container: result?.servings_per_container ?? current.servings_per_container,
         notes: noteParts.length > 0 ? noteParts.join('\n') : current.notes
       }))
@@ -841,11 +906,14 @@ export default function SupplementsPage() {
                                 {supplement.name}
                               </h3>
                               <p className="text-gray-400 text-sm">
-                                {supplement.dose_amount} {supplement.dose_unit}
+                                {formatPracticalDose(supplement)}
                                 {supplement.time_of_day && (
                                   <span className="text-cyan-400"> • {formatTimeOfDayLabel(supplement.time_of_day)}</span>
                                 )}
                               </p>
+                              {formatStrength(supplement) && (
+                                <p className="mt-1 text-xs text-gray-500">{formatStrength(supplement)}</p>
+                              )}
                               <p className="mt-1 text-xs text-gray-500">
                                 {takenCount} / {scheduledCount} doses taken today
                               </p>
@@ -954,8 +1022,13 @@ export default function SupplementsPage() {
                             )}
                           </div>
                           <p className="text-gray-400 text-sm mt-1">
-                            {supplement.dose_amount} {supplement.dose_unit} • {supplement.frequency.replace('_', ' ')}
+                            {formatPracticalDose(supplement)} • {supplement.frequency.replace('_', ' ')}
                           </p>
+                          {(formatStrength(supplement) || formatTotalDose(supplement)) && (
+                            <p className="mt-1 text-xs text-gray-500">
+                              {[formatStrength(supplement), formatTotalDose(supplement) && `total ${formatTotalDose(supplement)}`].filter(Boolean).join(' • ')}
+                            </p>
+                          )}
                         </div>
                         
                         {/* Stock indicator */}
@@ -1097,7 +1170,7 @@ export default function SupplementsPage() {
                             <div className="flex items-center gap-2">
                               <CheckIcon className="h-4 w-4 text-green-400" />
                               <span className="text-sm text-white">
-                                {log.dose_amount} {log.dose_unit}
+                                {formatPracticalDose(log.supplement || supplement)}
                               </span>
                             </div>
                             <span className="text-xs text-gray-400">
@@ -1285,10 +1358,14 @@ export default function SupplementsPage() {
                         <div className="text-base font-semibold text-white">{result.name}</div>
                         <div className="mt-1 text-sm text-gray-400">{result.brand || 'No brand listed'}</div>
                         <div className="mt-2 text-xs text-cyan-400">
-                          {result.dose_amount && result.dose_unit
-                            ? `${result.dose_amount} ${result.dose_unit}`
-                            : 'Dose not available'}
+                          {formatPracticalDose(result)}
                         </div>
+                        {formatStrength(result) && (
+                          <div className="mt-1 text-xs text-gray-500">{formatStrength(result)}</div>
+                        )}
+                        {formatTotalDose(result) && (
+                          <div className="mt-1 text-xs text-gray-500">Total dose: {formatTotalDose(result)}</div>
+                        )}
                       </button>
                     ))}
                     {!catalogLoading && catalogQuery.trim().length >= 2 && catalogResults.length === 0 && !catalogError && (
@@ -1352,38 +1429,107 @@ export default function SupplementsPage() {
                   />
                 </div>
                 
-                {/* Dose */}
+                {/* Practical Dose */}
+                <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-4">
+                  <h3 className="mb-4 text-sm font-medium text-cyan-400">Practical Dose</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">Count per Dose</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={formData.count_per_dose}
+                        onChange={(e) => setFormData({ ...formData, count_per_dose: e.target.value })}
+                        placeholder="1"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">Count Unit</label>
+                      <select
+                        value={formData.count_unit}
+                        onChange={(e) => setFormData({ ...formData, count_unit: e.target.value })}
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
+                      >
+                        <option value="capsule">Capsule</option>
+                        <option value="tablet">Tablet</option>
+                        <option value="softgel">Softgel</option>
+                        <option value="drop">Drop</option>
+                        <option value="ml">ml</option>
+                        <option value="scoop">Scoop</option>
+                        <option value="serving">Serving</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strength */}
+                <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-4">
+                  <h3 className="mb-4 text-sm font-medium text-cyan-400">Strength / Composition</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">Strength Amount</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={formData.strength_amount}
+                        onChange={(e) => setFormData({ ...formData, strength_amount: e.target.value })}
+                        placeholder="250"
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">Strength Unit</label>
+                      <select
+                        value={formData.strength_unit}
+                        onChange={(e) => setFormData({ ...formData, strength_unit: e.target.value })}
+                        className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
+                      >
+                        <option value="mg">mg</option>
+                        <option value="mcg">mcg</option>
+                        <option value="g">g</option>
+                        <option value="IU">IU</option>
+                        <option value="ml">ml</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Strength Basis</label>
+                    <input
+                      type="text"
+                      value={formData.strength_basis}
+                      onChange={(e) => setFormData({ ...formData, strength_basis: e.target.value })}
+                      placeholder="per capsule"
+                      className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Total Dose */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">Dose Amount</label>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Total Dose Amount</label>
                     <input
                       type="number"
                       step="0.1"
-                      value={formData.dose_amount}
-                      onChange={(e) => setFormData({ ...formData, dose_amount: e.target.value })}
-                      placeholder="5"
-                    className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
+                      value={formData.total_dose_amount}
+                      onChange={(e) => setFormData({ ...formData, total_dose_amount: e.target.value })}
+                      placeholder="500"
+                      className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white placeholder-gray-500 transition-colors focus:border-cyan-500 focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-2">Unit</label>
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Total Dose Unit</label>
                     <select
-                      value={formData.dose_unit}
-                      onChange={(e) => setFormData({ ...formData, dose_unit: e.target.value })}
+                      value={formData.total_dose_unit}
+                      onChange={(e) => setFormData({ ...formData, total_dose_unit: e.target.value })}
                       className="w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-base text-white transition-colors appearance-none focus:border-cyan-500 focus:outline-none"
                     >
-                      <option value="capsules">Capsules</option>
-                      <option value="capsule">Capsule</option>
-                      <option value="tablets">Tablets</option>
-                      <option value="tablet">Tablet</option>
-                      <option value="softgels">Softgels</option>
-                      <option value="drops">Drops</option>
-                      <option value="g">g (grams)</option>
-                      <option value="mg">mg (milligrams)</option>
-                      <option value="mcg">mcg (micrograms)</option>
-                      <option value="ml">ml (milliliters)</option>
-                      <option value="scoops">Scoops</option>
-                      <option value="serving">Serving</option>
+                      <option value="mg">mg</option>
+                      <option value="mcg">mcg</option>
+                      <option value="g">g</option>
+                      <option value="IU">IU</option>
+                      <option value="ml">ml</option>
                     </select>
                   </div>
                 </div>

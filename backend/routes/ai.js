@@ -393,12 +393,6 @@ async function callAiProvider(images, systemPrompt, userPrompt, options = {}) {
     let requestBody;
 
     if (provider === 'groq') {
-      if (normalizedImages.length) {
-        throw Object.assign(new Error('Groq extraction is configured for text-only input in this app'), {
-          statusCode: 400
-        });
-      }
-
       messages = [
         {
           role: 'system',
@@ -406,7 +400,20 @@ async function callAiProvider(images, systemPrompt, userPrompt, options = {}) {
         },
         {
           role: 'user',
-          content: combinedText
+          content: normalizedImages.length
+            ? [
+                ...normalizedImages.map((image) => ({
+                  type: 'image_url',
+                  image_url: {
+                    url: image.startsWith('data:') ? image : `data:image/jpeg;base64,${stripDataUrlPrefix(image)}`
+                  }
+                })),
+                {
+                  type: 'text',
+                  text: combinedText
+                }
+              ]
+            : combinedText
         }
       ];
 
@@ -769,6 +776,29 @@ async function extractBloodPanelTextDocument(pages) {
   return mergeBloodPanelExtractions(results);
 }
 
+async function scanNutritionLabel({ image, productNameHint = '' }) {
+  if (!image) {
+    throw Object.assign(new Error('Image is required'), { statusCode: 400 });
+  }
+
+  const data = await callAiProvider(
+    [image],
+    'You are a nutrition data extraction assistant. You extract nutritional information from food product labels and return ONLY valid JSON, no markdown, no explanation.',
+    [
+      'Extract the nutritional information from this food label image.',
+      'Return a JSON object with exactly these fields:',
+      '{ "name": "product name", "brand": "brand name or null", "serving_size_g": number or null, "calories_per_100g": number or null, "protein_per_100g": number or null, "carbs_per_100g": number or null, "fat_per_100g": number or null, "fibre_per_100g": number or null, "calories_per_serving": number or null, "protein_per_serving": number or null, "carbs_per_serving": number or null, "fat_per_serving": number or null, "fibre_per_serving": number or null }.',
+      'If the exact product name is unclear, use the best short guess from the pack front or use the brand name instead of null.',
+      'If values are given per serving, calculate per_100g values if serving size is known.',
+      'If values are per 100g, calculate per_serving if serving size is known.',
+      'Return null for any field you cannot determine.',
+      productNameHint ? `Product name hint: ${productNameHint}` : ''
+    ].filter(Boolean).join(' ')
+  );
+
+  return normalizeNutritionScanResult(data);
+}
+
 module.exports = function createAiRouter({ authenticateToken }) {
   const router = express.Router();
 
@@ -780,13 +810,7 @@ module.exports = function createAiRouter({ authenticateToken }) {
     }
 
     try {
-      const data = await callAiProvider(
-        [image],
-        'You are a nutrition data extraction assistant. You extract nutritional information from food product labels and return ONLY valid JSON, no markdown, no explanation.',
-        'Extract the nutritional information from this food label image. Return a JSON object with exactly these fields: { "name": "product name", "brand": "brand name or null", "serving_size_g": number or null, "calories_per_100g": number or null, "protein_per_100g": number or null, "carbs_per_100g": number or null, "fat_per_100g": number or null, "fibre_per_100g": number or null, "calories_per_serving": number or null, "protein_per_serving": number or null, "carbs_per_serving": number or null, "fat_per_serving": number or null, "fibre_per_serving": number or null }. If the exact product name is unclear, use the best short guess from the pack front or use the brand name instead of null. If values are given per serving, calculate per_100g values if serving size is known. If values are per 100g, calculate per_serving if serving size is known. Return null for any field you cannot determine.'
-      );
-
-      res.json(normalizeNutritionScanResult(data));
+      res.json(await scanNutritionLabel({ image }));
     } catch (error) {
       console.error('Nutrition label scan failed:', error);
       res.status(error.statusCode || 500).json({
@@ -929,4 +953,10 @@ module.exports = function createAiRouter({ authenticateToken }) {
   });
 
   return router;
+};
+
+module.exports.helpers = {
+  callAiProvider,
+  normalizeNutritionScanResult,
+  scanNutritionLabel
 };

@@ -27,6 +27,35 @@ const DASHBOARD_STATUS_COLORS = {
   critical: 'bg-red-500/20 text-red-400'
 }
 
+function getSupplementPracticalDose(supplement) {
+  const countPerDose = supplement?.count_per_dose ?? supplement?.practical_dose?.count_per_dose ?? supplement?.dose_amount ?? null
+  const countUnit = supplement?.count_unit ?? supplement?.practical_dose?.count_unit ?? supplement?.dose_unit ?? null
+  return { countPerDose, countUnit }
+}
+
+function formatSupplementPracticalDose(supplement) {
+  const { countPerDose, countUnit } = getSupplementPracticalDose(supplement)
+  if (!countPerDose || !countUnit) {
+    return 'Dose not set'
+  }
+
+  const singular = String(countUnit).trim().toLowerCase().replace(/s$/, '')
+  const label = Number(countPerDose) === 1 ? singular : `${singular}s`
+  return `${countPerDose} ${label}`
+}
+
+function formatSupplementStrength(supplement) {
+  const amount = supplement?.strength_amount ?? supplement?.strength?.amount ?? null
+  const unit = supplement?.strength_unit ?? supplement?.strength?.unit ?? null
+  const basis = supplement?.strength_basis ?? supplement?.strength?.basis ?? null
+
+  if (!amount || !unit) {
+    return ''
+  }
+
+  return `${amount} ${unit}${basis ? ` ${basis}` : ''}`
+}
+
 function DashboardRangeBar({ value, low, high, max }) {
   const min = 0
   const safeMax = max || Math.max(Number(high) * 1.4 || 0, Number(value) * 1.2 || 0, 100)
@@ -439,11 +468,14 @@ function SupplementsTodayCard({ supplementsList, supplementLogs, loggingSuppleme
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-white">{supplement.name}</div>
                 <div className="text-xs text-gray-400">
-                  {supplement.dose_amount} {supplement.dose_unit}
+                  {formatSupplementPracticalDose(supplement)}
                   {formatSupplementTimeLabel(supplement.time_of_day) && (
                     <span className="text-cyan-400"> • {formatSupplementTimeLabel(supplement.time_of_day)}</span>
                   )}
                 </div>
+                {formatSupplementStrength(supplement) && (
+                  <div className="text-[11px] text-gray-500">{formatSupplementStrength(supplement)}</div>
+                )}
               </div>
               <div className="ml-3 flex items-center gap-2">
                 <div className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
@@ -688,9 +720,10 @@ export default function LandingDashboard({ user }) {
 
     try {
       setLoggingSupplementId(supplement.id)
+      const { countPerDose, countUnit } = getSupplementPracticalDose(supplement)
       await supplements.logDose(supplement.id, {
-        dose_amount: supplement.dose_amount || 1,
-        dose_unit: supplement.dose_unit || 'capsule',
+        dose_amount: countPerDose || 1,
+        dose_unit: countUnit || 'capsule',
         taken_at: new Date().toISOString()
       })
 

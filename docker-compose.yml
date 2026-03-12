@@ -64,6 +64,8 @@ services:
       - COACH_OPENROUTER_TITLE=${COACH_OPENROUTER_TITLE:-PeptiFit}
       - COFID_REFRESH_KEY=${COFID_REFRESH_KEY:-peptifit-cofid-refresh-key-change-in-production}
       - COFID_REFRESH_CRON=${COFID_REFRESH_CRON:-}
+      - ASSISTANT_API_KEY=${ASSISTANT_API_KEY:-}
+      - ASSISTANT_USER_ID=${ASSISTANT_USER_ID:-}
     volumes:
       - ./data:/app/data
     networks:
