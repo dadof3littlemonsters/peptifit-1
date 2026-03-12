@@ -93,7 +93,7 @@ export default function App({ Component, pageProps }) {
       {!isPublicPage && (
         <DesktopNav pathname={router.pathname} user={user} />
       )}
-      <div className={`${isPublicPage ? '' : 'lg:pl-64 '}h-full min-h-0`}>
+      <div className={`${isPublicPage ? '' : 'lg:pl-64 '}flex min-h-0 flex-1 flex-col`}>
         <Component {...pageProps} user={user} setUser={setUser} />
       </div>
     </>

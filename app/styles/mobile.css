@@ -5,7 +5,9 @@
 /* ── Viewport shell ───────────────────────────────────────────
    Each page is a flex column that fills the screen:
      header (flex-shrink-0)  →  main.page-content (flex-1, scrolls)  →  BottomNav (fixed)
-   We lock overflow on html/body/#__next so only .page-content scrolls.
+   We keep .page-content as the preferred scroller, but we do not hard-lock
+   html/body anymore because mobile Safari can stop forwarding touch scroll
+   to nested containers when the root is overflow-hidden.
 */
 html {
   font-size: 16px;
@@ -20,17 +22,19 @@ html {
 
 @media (max-width: 1023px) {
   html, body {
-    height: 100%;
-    overflow: hidden;
-    overscroll-behavior: none;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: auto;
   }
 
   #__next {
-    height: 100vh; /* fallback for older browsers */
-    height: 100dvh; /* modern browsers: adjusts for mobile address bar */
+    min-height: 100vh; /* fallback for older browsers */
+    min-height: 100dvh; /* modern browsers: adjusts for mobile address bar */
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
   }
 
   /* ── Scrollable content area ─────────────────────────────────
@@ -38,12 +42,13 @@ html {
      This is the ONLY element that scrolls on the page.
   */
   .page-content {
-    flex: 1 1 0%;
+    flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
+    touch-action: pan-y;
   }
 }
 
